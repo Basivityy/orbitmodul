@@ -1,11 +1,11 @@
 import { decrypt, encrypt } from "@/core/crypto";
 import { createPanelAdapter } from "@/core/adapters/xui";
-import { panelHost, isPlaceholderBouquetName } from "@/core/catalog";
+import { displayBouquetName, isPlaceholderBouquetName, panelHost, pickCatalogHost } from "@/core/catalog";
 import { apiLogger } from "./audit";
 import { db } from "./db";
 import { getSetting, setSetting } from "./settings";
 
-export { panelHost, isPlaceholderBouquetName };
+export { displayBouquetName, panelHost, isPlaceholderBouquetName };
 
 /**
  * Central bouquet names, managed by the Super Admin.
@@ -64,8 +64,28 @@ export async function syncCatalog(): Promise<{ host: string; count: number; upda
 
 /** Names by external bouquet id for a panel URL (empty map when the admin has not synced that panel). */
 export async function catalogNamesFor(apiUrl: string): Promise<Map<string, string>> {
-  const rows = await db.bouquetCatalog.findMany({ where: { host: panelHost(apiUrl) } });
+  const hosts = (await db.bouquetCatalog.findMany({ distinct: ["host"], select: { host: true } })).map((r) => r.host);
+  const host = pickCatalogHost(apiUrl, hosts);
+  if (!host) return new Map();
+  const rows = await db.bouquetCatalog.findMany({ where: { host } });
   return new Map(rows.map((r) => [r.externalId, r.name]));
+}
+
+/**
+ * Bouquet names to show customers for a package: placeholders ("Bouquet #12") are replaced by the
+ * catalog names; ones still unknown are counted instead of shown.
+ */
+export async function packageBouquetNames(panelApiUrl: string, bouquets: { name: string; externalId: string }[]): Promise<{ names: string[]; unnamed: number }> {
+  const needCatalog = bouquets.some((b) => isPlaceholderBouquetName(b.name));
+  const catalog = needCatalog ? await catalogNamesFor(panelApiUrl) : new Map<string, string>();
+  const names: string[] = [];
+  let unnamed = 0;
+  for (const b of bouquets) {
+    const n = displayBouquetName(b.name, b.externalId, catalog);
+    if (n) names.push(n);
+    else unnamed++;
+  }
+  return { names, unnamed };
 }
 
 /**
@@ -75,7 +95,8 @@ export async function catalogNamesFor(apiUrl: string): Promise<Map<string, strin
 export async function applyCatalogToResellers(host: string): Promise<number> {
   const names = new Map((await db.bouquetCatalog.findMany({ where: { host } })).map((r) => [r.externalId, r.name]));
   if (!names.size) return 0;
-  const panels = (await db.panelIntegration.findMany({ select: { id: true, apiUrl: true } })).filter((p) => panelHost(p.apiUrl) === host);
+  const hosts = (await db.bouquetCatalog.findMany({ distinct: ["host"], select: { host: true } })).map((r) => r.host);
+  const panels = (await db.panelIntegration.findMany({ select: { id: true, apiUrl: true } })).filter((p) => pickCatalogHost(p.apiUrl, hosts) === host);
   let updated = 0;
   for (const p of panels) {
     const rows = await db.bouquet.findMany({ where: { panelId: p.id } });

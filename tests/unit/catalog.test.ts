@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isPlaceholderBouquetName, panelHost } from "../../src/core/catalog";
+import { displayBouquetName, isPlaceholderBouquetName, isResellerApiUrl, packageSellable, panelHost, pickCatalogHost } from "../../src/core/catalog";
 import { defaultGuide, guideDevices, guideEmailBlocks, guideLinks, normalizeGuide } from "../../src/core/appGuide";
 
 test("catalog: reseller and admin API URLs of one panel map to the same host", () => {
@@ -218,6 +218,23 @@ test("code pages: BHS default, EN and DE, translated errors", () => {
   assert.equal(unsupportedNote("de", "Not available on Hisense TVs (VIDAA)."), "Nicht verfügbar auf Hisense-Fernsehern (VIDAA).");
 });
 
+test("catalog: reseller panel finds the admin catalog even under another port or domain", () => {
+  assert.equal(pickCatalogHost("http://panel.tv/resellerapi", ["panel.tv"]), "panel.tv");
+  assert.equal(pickCatalogHost("http://panel.tv:8080/resellerapi", ["panel.tv", "other.tv"]), "panel.tv");
+  // one synced panel on the platform: used for every reseller panel
+  assert.equal(pickCatalogHost("http://1.2.3.4/resellerapi", ["panel.tv"]), "panel.tv");
+  // several panels and no match: no guessing
+  assert.equal(pickCatalogHost("http://1.2.3.4/resellerapi", ["panel.tv", "other.tv"]), null);
+  assert.equal(pickCatalogHost("http://1.2.3.4/resellerapi", []), null);
+});
+
+test("catalog: placeholders get catalog names, own names stay, unknown placeholders are hidden", () => {
+  const cat = new Map([["12", "BIH - BOSNA I HERCEGOVINA"]]);
+  assert.equal(displayBouquetName("Bouquet #12", "12", cat), "BIH - BOSNA I HERCEGOVINA");
+  assert.equal(displayBouquetName("Moj sport", "12", cat), "Moj sport");
+  assert.equal(displayBouquetName("Bouquet #99", "99", cat), null);
+});
+
 import { filterQuery, lineWhere, parseLineFilters } from "../../src/core/adminLines";
 
 test("admin lines overview: filters are parsed safely and round-trip", () => {
@@ -234,4 +251,12 @@ test("admin lines overview: filters are parsed safely and round-trip", () => {
   assert.ok(w.AND.some((c: any) => c.maxPlayerUserId?.startsWith === "TEST-"));
   assert.ok(w.AND.some((c: any) => c.isTest === true));
   assert.deepEqual(lineWhere(parseLineFilters({ test: "show" })), {}, "no filters → everything");
+});
+
+test("store: a reseller-API package is only sold when linked to a panel package", () => {
+  assert.equal(isResellerApiUrl("http://panel.tv/resellerapi"), true);
+  assert.equal(isResellerApiUrl("http://panel.tv/adminapi"), false);
+  assert.equal(packageSellable({ externalPackageId: null, panel: { apiUrl: "http://panel.tv/resellerapi" } }), false);
+  assert.equal(packageSellable({ externalPackageId: "2", panel: { apiUrl: "http://panel.tv/resellerapi" } }), true);
+  assert.equal(packageSellable({ externalPackageId: null, panel: { apiUrl: "http://panel.tv/adminapi" } }), true);
 });

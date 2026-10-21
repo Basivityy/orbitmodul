@@ -14,14 +14,17 @@ import { checkoutAction } from "../../actions";
 import { verifyRenewToken } from "@/core/renewToken";
 import { CUSTOMER_USERNAME_RULE } from "@/core/usernames";
 import { isPlaceholderEmail } from "@/core/importedCustomers";
+import { packageBouquetNames } from "@/lib/bouquetCatalog";
+import { packageSellable } from "@/core/catalog";
 
 export const metadata = { title: "Checkout" };
 
 export default async function CheckoutPage({ params, searchParams }: { params: Promise<{ slug: string; packageId: string }>; searchParams: Promise<Record<string, string>> }) {
   const [{ slug, packageId }, sp] = await Promise.all([params, searchParams]);
   const { reseller, base, canSell } = await resolveStore(slug);
-  const pkg = await db.package.findFirst({ where: { id: packageId, resellerId: reseller.id, active: true }, include: { bouquets: { include: { bouquet: true } } } });
-  if (!pkg) notFound();
+  const pkg = await db.package.findFirst({ where: { id: packageId, resellerId: reseller.id, active: true }, include: { panel: { select: { apiUrl: true } }, bouquets: { include: { bouquet: true } } } });
+  if (!pkg || !packageSellable(pkg)) notFound();
+  const bq = await packageBouquetNames(pkg.panel.apiUrl, pkg.bouquets.map((b) => b.bouquet));
   const testPayments = await storeTestPaymentsEnabled();
   const gateways = await enabledGateways(reseller.id);
   const customer = sp.renew ? await getCurrentCustomer(reseller.id) : null;
@@ -112,7 +115,10 @@ export default async function CheckoutPage({ params, searchParams }: { params: P
         <div className="card card-pad sticky top-6">
           <h2 className="mb-1">{pkg.name}</h2>
           <p className="muted mb-4">{pkg.durationDays} days · {pkg.maxConnections} connection{pkg.maxConnections > 1 ? "s" : ""}{pkg.billingType === "RECURRING" && !renewing ? " · renews automatically (card)" : ""}</p>
-          <ul className="mb-4 space-y-1 text-sm">{pkg.bouquets.map((b) => <li key={b.bouquetId}>✓ {b.bouquet.name}</li>)}</ul>
+          <ul className="mb-4 space-y-1 text-sm">
+            {bq.names.map((n, j) => <li key={j}>✓ {n}</li>)}
+            {bq.unnamed > 0 && <li className="muted">✓ {bq.names.length ? `+ ${bq.unnamed} more` : bq.unnamed} channel group{bq.unnamed > 1 ? "s" : ""}</li>}
+          </ul>
           <div className="flex items-baseline justify-between border-t border-slate-100 pt-4 dark:border-slate-800">
             <span className="muted">Total</span>
             <span className="text-2xl font-bold"><Money amount={price.amount} currency={pkg.currency} /></span>

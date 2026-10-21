@@ -1,4 +1,5 @@
 import { isPlaceholderEmail } from "@/core/importedCustomers";
+import { packageSellable } from "@/core/catalog";
 import { customerUsernameError } from "@/core/usernames";
 import type { Order, PaymentProvider, Prisma } from "@prisma/client";
 import { encrypt, decrypt, randomToken } from "@/core/crypto";
@@ -164,8 +165,9 @@ export async function startCheckout(input: {
   if (existing) throw new CheckoutError("This checkout was already submitted. Please refresh the page.");
 
   const reseller = await db.reseller.findUniqueOrThrow({ where: { id: input.resellerId } });
-  const pkg = await db.package.findFirst({ where: { id: input.packageId, resellerId: reseller.id, active: true } });
+  const pkg = await db.package.findFirst({ where: { id: input.packageId, resellerId: reseller.id, active: true }, include: { panel: { select: { apiUrl: true } } } });
   if (!pkg) throw new CheckoutError("This package is not available.");
+  if (!packageSellable(pkg)) throw new CheckoutError("This package is not available right now. Please contact the store.");
   // Store test mode (Super Admin switch): "Test payment" works for every store without a gateway.
   const storeTest = input.provider === "TEST" && input.storeTestPayment === true && (await storeTestPaymentsEnabled());
   const gw = storeTest ? null : await loadGateway(reseller.id, input.provider);

@@ -3,6 +3,8 @@ import { effectivePrice } from "@/core/pricing";
 import { Money } from "@/components/ui";
 import { db } from "@/lib/db";
 import { resolveStore } from "@/lib/storefront";
+import { packageBouquetNames } from "@/lib/bouquetCatalog";
+import { packageSellable } from "@/core/catalog";
 
 function durationLabel(days: number) {
   if (days % 365 === 0) return `${days / 365} year${days / 365 > 1 ? "s" : ""}`;
@@ -13,11 +15,12 @@ function durationLabel(days: number) {
 export default async function StoreHome({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<Record<string, string>> }) {
   const [{ slug }, sp] = await Promise.all([params, searchParams]);
   const { reseller, base, canSell } = await resolveStore(slug);
-  const packages = await db.package.findMany({
+  const packages = (await db.package.findMany({
     where: { resellerId: reseller.id, active: true },
     orderBy: [{ sortOrder: "asc" }, { priceCents: "asc" }],
-    include: { bouquets: { include: { bouquet: { select: { name: true } } } } },
-  });
+    include: { panel: { select: { apiUrl: true } }, bouquets: { include: { bouquet: { select: { name: true, externalId: true } } } } },
+  })).filter(packageSellable); // never take money for a package the panel cannot activate
+  const bouquetNames = await Promise.all(packages.map((p) => packageBouquetNames(p.panel.apiUrl, p.bouquets.map((b) => b.bouquet))));
   return (
     <>
       <section className="mb-10 text-center">
@@ -34,8 +37,9 @@ export default async function StoreHome({ params, searchParams }: { params: Prom
         <p className="muted text-center">No packages available yet.</p>
       ) : (
         <div id="packages" className="grid scroll-mt-6 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {packages.map((p) => {
+          {packages.map((p, i) => {
             const price = effectivePrice(p);
+            const { names, unnamed } = bouquetNames[i];
             return (
               <div key={p.id} className="card flex flex-col overflow-hidden">
                 <div className="h-1.5" style={{ background: "var(--brand)" }} />
@@ -49,8 +53,9 @@ export default async function StoreHome({ params, searchParams }: { params: Prom
                   {p.description && <p className="mt-4 whitespace-pre-line text-sm">{p.description}</p>}
                   <ul className="mt-4 flex-1 space-y-1.5 text-sm">
                     <li>✓ {p.maxConnections} simultaneous connection{p.maxConnections > 1 ? "s" : ""}</li>
-                    {p.bouquets.slice(0, 6).map((b) => <li key={b.bouquet.name}>✓ {b.bouquet.name}</li>)}
-                    {p.bouquets.length > 6 && <li className="muted">+ {p.bouquets.length - 6} more</li>}
+                    {names.slice(0, 8).map((n, j) => <li key={j}>✓ {n}</li>)}
+                    {names.length > 8 && <li className="muted">+ {names.length - 8} more</li>}
+                    {unnamed > 0 && <li className="muted">✓ {names.length ? `+ ${unnamed} more` : `${unnamed}`} channel group{unnamed > 1 ? "s" : ""}</li>}
                     {p.maxPlayerEnabled && <li>✓ MaxPlayer app account included</li>}
                     <li>✓ Instant activation after payment</li>
                   </ul>

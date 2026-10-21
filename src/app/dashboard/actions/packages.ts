@@ -1,4 +1,5 @@
 "use server";
+import { isResellerApiUrl } from "@/core/catalog";
 
 import { isSupportedCurrency, parseAmountToMinor } from "@/core/money";
 import { act, bool, int, optStr, str, UserError } from "@/lib/action";
@@ -41,6 +42,7 @@ export async function savePackageAction(fd: FormData) {
     const externalPackageId = str(fd, "externalPackageId", 20) || null;
     if (externalPackageId && !/^\d{1,12}$/.test(externalPackageId)) throw new UserError("Invalid panel package.");
     if (bouquets.length === 0 && !externalPackageId) throw new UserError("Select at least one bouquet (or link a panel package).");
+    if (bool(fd, "active") && !externalPackageId && isResellerApiUrl(panel.apiUrl)) throw new UserError("Choose the “Panel package” before putting this package on sale — your panel is connected with a reseller API key, so lines can only be created from a panel package.");
     const maxPlayerEnabled = bool(fd, "maxPlayerEnabled");
     if (maxPlayerEnabled && !planLimits(await loadResellerSaas(reseller.id)).allowMaxPlayer) throw new UserError("MaxPlayer integration is not included in your plan.");
 

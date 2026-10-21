@@ -6,6 +6,7 @@ import { SubmitButton } from "@/components/client";
 import { DateTime, Flash, Money } from "@/components/ui";
 import { db } from "@/lib/db";
 import { resolveStore } from "@/lib/storefront";
+import { packageSellable } from "@/core/catalog";
 import { lookupLineAction } from "../actions";
 
 export const metadata = { title: "Extend your line" };
@@ -68,7 +69,7 @@ export default async function RenewPage({ params, searchParams }: { params: Prom
     );
   }
 
-  const packages = await db.package.findMany({ where: { resellerId: reseller.id, active: true, panelId: sub.panelId }, orderBy: [{ sortOrder: "asc" }, { priceCents: "asc" }] });
+  const packages = (await db.package.findMany({ where: { resellerId: reseller.id, active: true, panelId: sub.panelId }, include: { panel: { select: { apiUrl: true } } }, orderBy: [{ sortOrder: "asc" }, { priceCents: "asc" }] })).filter(packageSellable);
   const expired = !sub.expiresAt || sub.expiresAt < new Date();
   return (
     <div className="mx-auto max-w-3xl">

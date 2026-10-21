@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { formatMoney } from "@/core/money";
 import { BarChart, Card, DateTime, Empty, Flash, Money, PageHeader, Stat, StatusBadge } from "@/components/ui";
@@ -12,6 +13,8 @@ import { effectiveTestMode } from "@/lib/activationStore";
 import { env } from "@/lib/env";
 import { storeTestPaymentsEnabled } from "@/lib/settings";
 import { retryAllMaxPlayerAction } from "./actions/integrations";
+import { loadResellerSaas, sellBlockers } from "@/lib/saas";
+import { packageSellable } from "@/core/catalog";
 
 export const metadata = { title: "Overview" };
 
@@ -52,6 +55,18 @@ export default async function Overview({ searchParams }: { searchParams: Promise
     db.activationCode.count({ where: { resellerId: reseller.id, status: "UNUSED" } }),
   ]);
   const livePanels = panelRows.filter((p) => !effectiveTestMode(p.testMode));
+  // Why customers might not be able to buy in the store — shown as a checklist on top.
+  const [blockers, activePackages] = await Promise.all([
+    loadResellerSaas(reseller.id).then((full) => sellBlockers(full, !!user.emailVerifiedAt)),
+    db.package.findMany({ where: { resellerId: reseller.id, active: true }, select: { name: true, externalPackageId: true, panel: { select: { apiUrl: true } } } }),
+  ]);
+  const unlinked = activePackages.filter((p) => !packageSellable(p));
+  const shopProblems: ReactNode[] = [
+    ...blockers,
+    ...(activePackages.length === 0 ? [<>No package is on sale — <Link href="/dashboard/packages">Packages &amp; prices</Link>: set a price and switch a package on.</>] : []),
+    ...(unlinked.length ? [<>Hidden in the store because no panel package is chosen: {unlinked.map((p) => p.name).join(", ")} — open the package and choose “Panel package”.</>] : []),
+    ...(gateways === 0 && !testPayments ? [<>No payment method — customers cannot pay online. Connect one under <Link href="/dashboard/payments">Payments</Link>, or sell with <Link href="/dashboard/codes">activation codes</Link>.</>] : []),
+  ];
   const panelHealth: { tone: HealthTone; detail: string } = panelRows.length === 0
     ? { tone: "bad", detail: "No panel connected" }
     : panelRows.some((p) => p.status === "ERROR")
@@ -89,6 +104,13 @@ export default async function Overview({ searchParams }: { searchParams: Promise
         actions={<><Link className="btn-secondary" href="/dashboard/packages/new">New package</Link><Link className="btn-primary" href="/dashboard/customers/new">+ Add customer</Link></>}
       />
       <Flash sp={sp} />
+
+      {shopProblems.length > 0 && (
+        <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+          <b>Customers cannot buy everything in your store yet</b>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">{shopProblems.map((m, i) => <li key={i}>{m}</li>)}</ul>
+        </div>
+      )}
 
       <section aria-label="System status" className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <HealthItem tone={panelHealth.tone} title="XUI panel" detail={panelHealth.detail} href="/dashboard/panels" />
