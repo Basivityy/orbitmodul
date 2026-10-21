@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --signal: #ffd400;
+  --line: #deded8;
+  --accent-strong: #806a00;
+}
+html.dark {
+  color-scheme: dark;
+  --line: #242422;
+  --accent-strong: #ffd400;
+}
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-800 antialiased dark:bg-slate-950 dark:text-slate-200;
+    font-family: Archivo, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-stretch: 100%;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+  a, button, summary, label, input, select, textarea { touch-action: manipulation; }
+  h1, h2, h3, .font-display { font-stretch: 125%; }
+  h1 { @apply text-2xl font-extrabold tracking-tight text-slate-950 dark:text-white; }
+  h2 { @apply text-lg font-bold text-slate-950 dark:text-white; }
+  h3 { @apply text-base font-bold text-slate-950 dark:text-white; }
+  a { @apply text-brand-800 underline-offset-2 hover:underline dark:text-brand-400; }
+  code { @apply rounded bg-slate-100 px-1.5 py-0.5 text-[0.85em] text-slate-800 dark:bg-slate-800 dark:text-brand-200; }
+  ::selection { background: var(--signal); color: #000; }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+}
+
+@layer components {
+  .card { @apply rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900; }
+  .card-pad { @apply p-4 sm:p-5; }
+  .btn { @apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold sm:min-h-[38px] sm:px-3.5 no-underline transition-colors hover:no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-black; }
+  .btn-primary { @apply btn bg-brand-500 text-black hover:bg-brand-300 active:bg-brand-600 dark:text-black; }
+  .btn-secondary { @apply btn border border-slate-300 bg-white text-slate-800 hover:border-slate-950 dark:border-slate-700 dark:bg-transparent dark:text-slate-100 dark:hover:border-brand-500 dark:hover:text-brand-300; }
+  .btn-danger { @apply btn bg-rose-600 text-white hover:bg-rose-500 dark:text-white; }
+  .btn-ghost { @apply btn text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white; }
+  .btn-sm { @apply min-h-[36px] px-3 py-1.5 text-xs sm:min-h-[30px] sm:px-2.5; }
+  .label { @apply mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-300; }
+  .hint { @apply mt-1 text-xs text-slate-500 dark:text-slate-400; }
+  /* 16px text on phones: iOS zooms into any input smaller than that. */
+  .input { @apply block min-h-[44px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-base sm:min-h-[38px] sm:text-sm text-slate-950 placeholder-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 dark:border-slate-700 dark:bg-black dark:text-slate-50 dark:placeholder-slate-600; }
+  .checkbox { @apply h-5 w-5 sm:h-4 sm:w-4 rounded border-slate-300 text-brand-500 focus:ring-brand-500 dark:border-slate-600 dark:bg-black; accent-color: var(--signal); }
+  input[type="checkbox"], input[type="radio"] { accent-color: var(--signal); }
+  .badge { @apply inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold; }
+  .badge-green { @apply badge bg-emerald-100 text-emerald-800 dark:bg-emerald-400/10 dark:text-emerald-300; }
+  .badge-red { @apply badge bg-rose-100 text-rose-800 dark:bg-rose-500/15 dark:text-rose-300; }
+  .badge-amber { @apply badge bg-brand-100 text-brand-900 dark:bg-brand-500/15 dark:text-brand-300; }
+  .badge-blue { @apply badge bg-slate-950 text-brand-400 dark:bg-brand-500 dark:text-black; }
+  .badge-gray { @apply badge bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300; }
+  .table-wrap { @apply overflow-x-auto; -webkit-overflow-scrolling: touch; }
+  .table { @apply min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800; }
+  .table th { @apply whitespace-nowrap px-3 py-2.5 sm:px-4 text-left text-xs font-semibold text-slate-500 dark:text-slate-400; }
+  .table td { @apply whitespace-nowrap px-3 py-3 align-middle sm:px-4; }
+  .table tbody tr { @apply hover:bg-slate-50 dark:hover:bg-white/[0.03]; }
+  .nav-link { @apply flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-slate-600 no-underline hover:bg-slate-100 hover:text-slate-950 hover:no-underline dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white; }
+  .nav-link-active { @apply bg-slate-950 text-brand-400 dark:bg-brand-500/10 dark:text-brand-300; box-shadow: inset 3px 0 0 var(--signal); }
+  .muted { @apply text-sm text-slate-500 dark:text-slate-400; }
+  .grid-form { @apply grid gap-4 sm:grid-cols-2; }
+  .brand-mark { @apply inline-flex h-7 w-7 items-center justify-center rounded bg-brand-500 text-sm font-black text-black; }
+  .signal-bar { background: var(--signal); height: 3px; }
+  /* Store buttons on the reseller's brand colour: readable text on light colours (e.g. yellow). */
+  [style*="background:var(--brand)"] { color: var(--brand-ink, #fff) !important; }
+  .hazard { background: repeating-linear-gradient(-45deg, var(--signal) 0 14px, #000 14px 28px); height: 10px; }
+}

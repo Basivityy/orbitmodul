@@ -1,0 +1,772 @@
+// XUI One Reseller Billing — database schema
+// Multi-tenant rule: every tenant-owned row carries `resellerId`, and every
+// server-side query for reseller data is scoped by the authenticated reseller.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  RESELLER
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+// New resellers wait for the Super Admin's approval before they can use the platform.
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TokenType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+  CUSTOMER_LOGIN
+}
+
+enum SessionKind {
+  USER
+  CUSTOMER
+}
+
+enum BillingInterval {
+  MONTH
+  YEAR
+}
+
+enum SaasStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum ConnectionStatus {
+  UNTESTED
+  CONNECTED
+  ERROR
+}
+
+enum PaymentProvider {
+  STRIPE
+  PAYPAL
+  MOLLIE
+  NOWPAYMENTS
+  TEST
+  MANUAL
+}
+
+enum BillingType {
+  ONE_TIME
+  RECURRING
+}
+
+enum CouponType {
+  PERCENT
+  FIXED
+}
+
+enum OrderKind {
+  NEW
+  RENEWAL
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  ACTIVATING
+  COMPLETED
+  ACTIVATION_FAILED
+  ON_HOLD
+  CANCELED
+  FAILED
+  REFUNDED
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  CANCELED
+  SUSPENDED
+}
+
+enum MaxPlayerState {
+  NONE
+  PENDING
+  ACTIVE
+  FAILED
+}
+
+enum TransactionType {
+  PAYMENT
+  REFUND
+}
+
+enum TransactionStatus {
+  SUCCEEDED
+  FAILED
+  PENDING
+}
+
+model User {
+  id              String        @id @default(cuid())
+  email           String        @unique
+  passwordHash    String
+  name            String
+  role            Role          @default(RESELLER)
+  status          AccountStatus @default(ACTIVE)
+  emailVerifiedAt DateTime?
+  totpSecretEnc   String?
+  totpEnabled     Boolean       @default(false)
+  lastLoginAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  reseller Reseller?
+  sessions Session[]
+  tokens   Token[]
+}
+
+model Session {
+  id               String      @id @default(cuid())
+  tokenHash        String      @unique
+  kind             SessionKind @default(USER)
+  userId           String?
+  customerId       String?
+  twoFactorPending Boolean     @default(false)
+  ip               String?
+  userAgent        String?
+  expiresAt        DateTime
+  createdAt        DateTime    @default(now())
+
+  user     User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([customerId])
+}
+
+model Token {
+  id         String    @id @default(cuid())
+  type       TokenType
+  tokenHash  String    @unique
+  userId     String?
+  customerId String?
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  user     User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+model Reseller {
+  id                   String        @id @default(cuid())
+  slug                 String        @unique
+  ownerUserId          String        @unique
+  status               AccountStatus @default(ACTIVE)
+  approvalStatus       ApprovalStatus @default(APPROVED)
+  approvedAt           DateTime?
+  approvalNote         String?
+  billingEnabled       Boolean       @default(true)
+  storeName            String
+  /// Name customers see in emails (From name, email header, signature). Empty = storeName.
+  emailFromName        String?
+  logoUrl              String?
+  primaryColor         String        @default("#ffd400")
+  accentColor          String        @default("#000000")
+  description          String?
+  contactEmail         String?
+  contactPhone         String?
+  contactTelegram      String?
+  contactWhatsapp      String?
+  termsText            String?
+  refundPolicy         String?
+  defaultCurrency      String        @default("EUR")
+  linePrefix           String        @default("")
+  customDomain         String?       @unique
+  customDomainVerified Boolean       @default(false)
+  domainVerifyToken    String?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  owner          User                  @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  saas           SaasSubscription?
+  saasInvoices   SaasInvoice[]
+  panels         PanelIntegration[]
+  bouquets       Bouquet[]
+  maxPlayer      MaxPlayerIntegration?
+  packages       Package[]
+  coupons        Coupon[]
+  gateways       PaymentGateway[]
+  customers      Customer[]
+  orders         Order[]
+  subscriptions  Subscription[]
+  transactions   Transaction[]
+  invoices       Invoice[]
+  emailTemplates EmailTemplate[]
+  activationCodes ActivationCode[]
+  mailSettings    ResellerMail?
+  announcements          Announcement[]
+  announcementDismissals AnnouncementDismissal[]
+
+  @@index([approvalStatus])
+}
+
+model SaasPlan {
+  id                String          @id @default(cuid())
+  code              String          @unique
+  name              String
+  priceCents        Int
+  currency          String          @default("EUR")
+  interval          BillingInterval @default(MONTH)
+  features          Json            @default("[]")
+  maxPackages       Int             @default(5)
+  maxPanels         Int             @default(1)
+  maxActiveCustomers Int            @default(100)
+  allowCustomDomain Boolean         @default(false)
+  allowMaxPlayer    Boolean         @default(false)
+  active            Boolean         @default(true)
+  isDefault         Boolean         @default(false)
+  sortOrder         Int             @default(0)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  subscriptions SaasSubscription[]
+}
+
+model SaasSubscription {
+  id                   String     @id @default(cuid())
+  resellerId           String     @unique
+  planId               String
+  status               SaasStatus @default(TRIALING)
+  trialEndsAt          DateTime?
+  currentPeriodEnd     DateTime?
+  stripeCustomerId     String?
+  stripeSubscriptionId String?    @unique
+  cancelAtPeriodEnd    Boolean    @default(false)
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+  plan     SaasPlan @relation(fields: [planId], references: [id])
+}
+
+model SaasInvoice {
+  id          String   @id @default(cuid())
+  resellerId  String
+  number      String   @unique
+  amountCents Int
+  currency    String
+  status      String
+  providerRef String?  @unique
+  periodEnd   DateTime?
+  paidAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+
+  @@index([resellerId])
+}
+
+model PanelIntegration {
+  id            String           @id @default(cuid())
+  resellerId    String
+  name          String
+  type          String           @default("XUI_ONE")
+  apiUrl        String
+  apiKeyEnc     String
+  lineMode      String           @default("BOUQUETS")
+  // Optional second API (e.g. XUI admin API) used only to read bouquet names
+  namesApiUrl    String?
+  namesApiKeyEnc String?
+  // XUI user id (reseller) that new lines are created under (admin API member_id)
+  lineOwnerId    String?
+  // Address players/apps connect to (DNS), e.g. http://line.example.com:80. Empty = API host.
+  streamUrl      String?
+  extraParams   Json             @default("{}")
+  status        ConnectionStatus @default(UNTESTED)
+  lastCheckedAt DateTime?
+  lastError     String?
+  credits       String?
+  testMode      Boolean          @default(true)
+  isDefault     Boolean          @default(false)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  reseller      Reseller       @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+  bouquets      Bouquet[]
+  packages      Package[]
+  subscriptions Subscription[]
+
+  @@index([resellerId])
+}
+
+model Bouquet {
+  id         String   @id @default(cuid())
+  resellerId String
+  panelId    String
+  externalId String
+  name       String
+  syncedAt   DateTime @default(now())
+
+  reseller Reseller          @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+  panel    PanelIntegration  @relation(fields: [panelId], references: [id], onDelete: Cascade)
+  packages PackageBouquet[]
+
+  @@unique([panelId, externalId])
+  @@index([resellerId])
+}
+
+model MaxPlayerIntegration {
+  id          String           @id @default(cuid())
+  resellerId  String           @unique
+  apiKeyEnc   String
+  domainId    String?
+  enabled     Boolean          @default(false)
+  testMode    Boolean          @default(true)
+  maxDevices  Int?
+  maxProfiles Int?
+  status      ConnectionStatus @default(UNTESTED)
+  lastError   String?
+  lastCheckedAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+}
+
+model Package {
+  id               String      @id @default(cuid())
+  resellerId       String
+  panelId          String
+  name             String
+  description      String?
+  priceCents       Int
+  currency         String
+  promoPriceCents  Int?
+  promoEndsAt      DateTime?
+  durationDays     Int
+  maxConnections   Int         @default(1)
+  billingType      BillingType @default(ONE_TIME)
+  maxPlayerEnabled Boolean     @default(false)
+  isTrial          Boolean     @default(false)
+  externalPackageId String?
+  active           Boolean     @default(true)
+  sortOrder        Int         @default(0)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  reseller      Reseller         @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+  panel         PanelIntegration @relation(fields: [panelId], references: [id])
+  bouquets      PackageBouquet[]
+  orders        Order[]
+  subscriptions Subscription[]
+  activationCodes ActivationCode[]
+
+  @@index([resellerId])
+}
+
+model PackageBouquet {
+  packageId String
+  bouquetId String
+
+  package Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  bouquet Bouquet @relation(fields: [bouquetId], references: [id], onDelete: Cascade)
+
+  @@id([packageId, bouquetId])
+}
+
+model Coupon {
+  id             String     @id @default(cuid())
+  resellerId     String
+  code           String
+  type           CouponType @default(PERCENT)
+  value          Int
+  currency       String?
+  maxRedemptions Int?
+  redemptions    Int        @default(0)
+  validFrom      DateTime?
+  validUntil     DateTime?
+  packageIds     String[]   @default([])
+  active         Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+
+  reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+  orders   Order[]
+
+  @@unique([resellerId, code])
+}
+
+model PaymentGateway {
+  id             String          @id @default(cuid())
+  resellerId     String
+  provider       PaymentProvider
+  credentialsEnc String
+  enabled        Boolean         @default(true)
+  sandbox        Boolean         @default(true)
+  webhookToken   String          @unique
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+
+  @@unique([resellerId, provider])
+}
+
+model Customer {
+  id         String   @id @default(cuid())
+  resellerId String
+  email      String
+  name       String?
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  reseller      Reseller       @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+  orders        Order[]
+  subscriptions Subscription[]
+  invoices      Invoice[]
+  sessions      Session[]
+  tokens        Token[]
+
+  @@unique([resellerId, email])
+}
+
+model Order {
+  id                String          @id @default(cuid())
+  number            String          @unique
+  resellerId        String
+  customerId        String
+  packageId         String
+  subscriptionId    String?
+  kind              OrderKind       @default(NEW)
+  status            OrderStatus     @default(PENDING)
+  amountCents       Int
+  discountCents     Int             @default(0)
+  currency          String
+  couponId          String?
+  provider          PaymentProvider
+  providerRef       String?
+  providerPaymentId String?
+  providerSubscriptionId String?
+  packageSnapshot   Json
+  accessToken       String          @unique
+  idempotencyKey    String          @unique
+  notifyCustomer    Boolean         @default(true)
+  // Credentials + expiry are planned once and reused on every retry, so a crash
+  // between "panel created the line" and "DB saved it" can never create a second line.
+  lineUsername      String?
+  linePasswordEnc   String?
+  plannedExpiresAt  DateTime?
+  lockedUntil       DateTime?
+  paidAt            DateTime?
+  activatedAt       DateTime?
+  attempts          Int             @default(0)
+  errorMessage      String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  reseller     Reseller      @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+  customer     Customer      @relation(fields: [customerId], references: [id])
+  package      Package       @relation(fields: [packageId], references: [id])
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  coupon       Coupon?       @relation(fields: [couponId], references: [id])
+  transactions Transaction[]
+  invoice      Invoice?
+
+  @@unique([provider, providerPaymentId])
+  @@index([resellerId, status])
+  @@index([resellerId, createdAt])
+}
+
+model Subscription {
+  id                     String             @id @default(cuid())
+  resellerId             String
+  customerId             String
+  packageId              String
+  panelId                String
+  status                 SubscriptionStatus @default(PENDING)
+  priceCents             Int
+  currency               String
+  durationDays           Int
+  autoRenew              Boolean            @default(false)
+  provider               PaymentProvider?
+  providerSubscriptionId String?
+  startsAt               DateTime?
+  expiresAt              DateTime?
+  xuiLineId              String?
+  lineUsername           String?
+  linePasswordEnc        String?
+  maxPlayerUserId        String?
+  maxPlayerStatus        MaxPlayerState     @default(NONE)
+  maxPlayerError         String?
+  reminderSentAt         DateTime?
+  isTest                 Boolean            @default(false)
+  // Code the customer signs in to the app with (the activation code that created the line, or one issued by the reseller)
+  appCode                String?            @unique
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  reseller Reseller         @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+  customer Customer         @relation(fields: [customerId], references: [id])
+  package  Package          @relation(fields: [packageId], references: [id])
+  panel    PanelIntegration @relation(fields: [panelId], references: [id])
+  orders   Order[]
+  transactions Transaction[]
+  appDevices   AppDevice[]
+
+  @@unique([provider, providerSubscriptionId])
+  @@index([resellerId, status])
+  @@index([expiresAt])
+}
+
+model Transaction {
+  id             String            @id @default(cuid())
+  resellerId     String
+  orderId        String?
+  subscriptionId String?
+  type           TransactionType   @default(PAYMENT)
+  status         TransactionStatus @default(SUCCEEDED)
+  amountCents    Int
+  currency       String
+  provider       PaymentProvider
+  providerRef    String?
+  createdAt      DateTime          @default(now())
+
+  reseller     Reseller      @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+  order        Order?        @relation(fields: [orderId], references: [id])
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+
+  @@unique([provider, type, providerRef])
+  @@index([resellerId, createdAt])
+}
+
+model Invoice {
+  id          String   @id @default(cuid())
+  resellerId  String
+  customerId  String
+  orderId     String   @unique
+  number      String   @unique
+  amountCents Int
+  currency    String
+  lines       Json
+  issuedAt    DateTime @default(now())
+
+  reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id])
+  order    Order    @relation(fields: [orderId], references: [id])
+
+  @@index([resellerId])
+}
+
+model WebhookEvent {
+  id          String    @id @default(cuid())
+  provider    String
+  scope       String
+  eventId     String
+  type        String?
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+  error       String?
+
+  @@unique([provider, scope, eventId])
+}
+
+model ApiLog {
+  id          String   @id @default(cuid())
+  resellerId  String?
+  service     String
+  action      String
+  success     Boolean
+  statusCode  Int?
+  durationMs  Int?
+  message     String?
+  orderId     String?
+  createdAt   DateTime @default(now())
+
+  @@index([resellerId, createdAt])
+  @@index([success, createdAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  actorEmail  String?
+  actorRole   String?
+  resellerId  String?
+  action      String
+  target      String?
+  meta        Json?
+  ip          String?
+  createdAt   DateTime @default(now())
+
+  @@index([resellerId, createdAt])
+  @@index([createdAt])
+}
+
+model EmailTemplate {
+  id         String   @id @default(cuid())
+  resellerId String?
+  key        String
+  subject    String
+  body       String
+  updatedAt  DateTime @updatedAt
+
+  reseller Reseller? @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+
+  @@unique([resellerId, key])
+}
+
+model EmailLog {
+  id         String   @id @default(cuid())
+  resellerId String?
+  to         String
+  template   String
+  status     String
+  error      String?
+  // What was sent (passwords masked) and through which mailbox: "reseller" / "platform" / "log"
+  subject    String?
+  body       String?
+  via        String?
+  fromEmail  String?
+  createdAt  DateTime @default(now())
+
+  @@index([resellerId, createdAt])
+}
+
+// Reseller's own outgoing mailbox (SMTP). Customer emails of this reseller are sent through it.
+model ResellerMail {
+  id         String    @id @default(cuid())
+  resellerId String    @unique
+  enabled    Boolean   @default(false)
+  host       String
+  port       Int       @default(587)
+  secure     Boolean   @default(false)
+  username   String
+  passEnc    String
+  fromEmail  String
+  fromName   String?
+  lastTestAt DateTime?
+  lastError  String?
+  updatedAt  DateTime  @updatedAt
+
+  reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+}
+
+// Devices signed in to the app with a subscription's app code (limit = package connections).
+model AppDevice {
+  id             String   @id @default(cuid())
+  subscriptionId String
+  deviceId       String
+  name           String?
+  createdAt      DateTime @default(now())
+  lastSeenAt     DateTime @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, deviceId])
+}
+
+enum ActivationCodeStatus {
+  UNUSED
+  USED
+  VOID
+}
+
+// One-time codes a reseller sells anywhere (own shop, PayPal, cash). The customer redeems the code
+// on the reseller's universal activation link: new line or extension for the code's package.
+model ActivationCode {
+  id             String               @id @default(cuid())
+  resellerId     String
+  packageId      String
+  code           String               @unique
+  status         ActivationCodeStatus @default(UNUSED)
+  batch          String?
+  createdAt      DateTime             @default(now())
+  usedAt         DateTime?
+  usedByEmail    String?
+  orderId        String?
+  subscriptionId String?
+  lineUsername   String?
+
+  reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+  package  Package  @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@index([resellerId, status])
+  @@index([packageId])
+}
+
+// Bouquet names synced centrally by the Super Admin (e.g. from the XUI admin API), keyed by panel host.
+// Resellers on the same panel get these names automatically; the admin key can be removed after a sync.
+model BouquetCatalog {
+  id         String   @id @default(cuid())
+  host       String
+  externalId String
+  name       String
+  syncedAt   DateTime @default(now())
+
+  @@unique([host, externalId])
+  @@index([host])
+}
+
+model PlatformSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+enum NoticeTone {
+  INFO
+  SUCCESS
+  WARNING
+  URGENT
+}
+
+// Messages the Super Admin shows on reseller dashboards (all resellers or one).
+model Announcement {
+  id          String     @id @default(cuid())
+  title       String
+  body        String
+  tone        NoticeTone @default(INFO)
+  // null = every reseller
+  resellerId  String?
+  startsAt    DateTime   @default(now())
+  endsAt      DateTime?
+  active      Boolean    @default(true)
+  dismissible Boolean    @default(true)
+  createdBy   String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  reseller   Reseller?               @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+  dismissals AnnouncementDismissal[]
+
+  @@index([active, startsAt])
+  @@index([resellerId])
+}
+
+// A reseller closed ("Got it") an announcement.
+model AnnouncementDismissal {
+  announcementId String
+  resellerId     String
+  createdAt      DateTime @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  reseller     Reseller     @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+
+  @@id([announcementId, resellerId])
+  @@index([resellerId])
+}

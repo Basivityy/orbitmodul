@@ -1,0 +1,48 @@
+# HTTP-only mode (access by server IP, no domain / no certificate).
+# Switch to HTTPS later: NGINX_MODE=https in .env (see UPUTSTVO.md).
+limit_req_zone $binary_remote_addr zone=auth:10m rate=10r/m;
+limit_req_zone $binary_remote_addr zone=general:10m rate=20r/s;
+
+# Compression: pages and scripts load much faster on mobile networks.
+gzip on;
+gzip_comp_level 5;
+gzip_min_length 512;
+gzip_proxied any;
+gzip_vary on;
+gzip_types text/plain text/css application/javascript application/json image/svg+xml text/xml application/xml application/manifest+json text/javascript;
+
+upstream app_upstream {
+    server app:3000;
+    keepalive 32;
+}
+
+server {
+    listen 80 default_server;
+    server_name _;
+    client_max_body_size 2m;
+    server_tokens off;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto http;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_read_timeout 60s;
+
+    location ~ ^/(login|register|forgot-password|reset-password) {
+        limit_req zone=auth burst=20 nodelay;
+        proxy_pass http://app_upstream;
+    }
+    location /api/webhooks/ { proxy_pass http://app_upstream; }
+    location /_next/static/ {
+        proxy_pass http://app_upstream;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+    location / {
+        limit_req zone=general burst=60 nodelay;
+        proxy_pass http://app_upstream;
+    }
+}

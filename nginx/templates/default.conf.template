@@ -1,0 +1,32 @@
+limit_req_zone $binary_remote_addr zone=auth:10m rate=10r/m;
+limit_req_zone $binary_remote_addr zone=general:10m rate=20r/s;
+
+upstream app_upstream {
+    server app:3000;
+    keepalive 32;
+}
+
+server {
+    listen 80 default_server;
+    server_name _;
+    client_max_body_size 2m;
+    server_tokens off;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto http;
+    proxy_http_version 1.1;
+    proxy_read_timeout 60s;
+
+    location ~ ^/(login|register|forgot-password|reset-password) {
+        limit_req zone=auth burst=20 nodelay;
+        proxy_pass http://app_upstream;
+    }
+    location /api/webhooks/ { proxy_pass http://app_upstream; }
+    location / {
+        limit_req zone=general burst=60 nodelay;
+        proxy_pass http://app_upstream;
+    }
+}
