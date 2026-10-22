@@ -1,10 +1,10 @@
 limit_req_zone $binary_remote_addr zone=auth:10m rate=10r/m;
 limit_req_zone $binary_remote_addr zone=general:10m rate=20r/s;
 
-upstream app_upstream {
-    server app:3000;
-    keepalive 32;
-}
+# Docker DNS, re-resolved every 10s: a rebuilt app container gets a new IP and nginx
+# must follow it (a fixed upstream keeps the old IP and answers 502 until restarted).
+resolver 127.0.0.11 valid=10s ipv6=off;
+map $host $app_backend { default "http://app:3000"; }
 
 server {
     listen 80 default_server;
@@ -22,11 +22,11 @@ server {
 
     location ~ ^/(login|register|forgot-password|reset-password) {
         limit_req zone=auth burst=20 nodelay;
-        proxy_pass http://app_upstream;
+        proxy_pass $app_backend;
     }
-    location /api/webhooks/ { proxy_pass http://app_upstream; }
+    location /api/webhooks/ { proxy_pass $app_backend; }
     location / {
         limit_req zone=general burst=60 nodelay;
-        proxy_pass http://app_upstream;
+        proxy_pass $app_backend;
     }
 }
