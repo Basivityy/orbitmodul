@@ -21,6 +21,8 @@ import { savePublicUrl } from "@/lib/publicUrl";
 import { normalizePublicUrl } from "@/core/publicUrl";
 import { panelHost, removeCatalogKey, saveCatalogSource, syncCatalog } from "@/lib/bouquetCatalog";
 import { getAppGuide, ICON_MAX_BYTES, ICON_TYPES, PLATFORMS, saveAppGuide, setAppIcon } from "@/lib/appGuide";
+import { saveTmdbKey } from "@/lib/vod";
+import { TmdbClient } from "@/core/vod";
 
 export async function setResellerStatusAction(fd: FormData) {
   const admin = await requireAdmin();
@@ -82,6 +84,40 @@ export async function setResellerBillingAction(fd: FormData) {
     await db.reseller.update({ where: { id }, data: { billingEnabled: enabled } });
     await audit({ actor: actorOf(admin), resellerId: id, action: enabled ? "admin.billing_enabled" : "admin.billing_disabled", ip: await clientIp() });
     return enabled ? "Billing module enabled for this reseller." : "Billing module disabled for this reseller — no new checkouts or activations.";
+  });
+}
+
+export async function setResellerVodAction(fd: FormData) {
+  const admin = await requireAdmin();
+  const id = str(fd, "resellerId", 40);
+  return act(`/admin/resellers/${id}`, async () => {
+    const enabled = str(fd, "enabled") === "true";
+    await db.reseller.update({ where: { id }, data: { vodMonitorEnabled: enabled } });
+    if (!enabled) await db.vodMonitor.updateMany({ where: { resellerId: id, status: { in: ["QUEUED", "RUNNING"] } }, data: { status: "IDLE" } });
+    await audit({ actor: actorOf(admin), resellerId: id, action: enabled ? "admin.vod_enabled" : "admin.vod_disabled", ip: await clientIp() });
+    return enabled ? "VOD monitoring enabled — the reseller now sees “VOD monitoring” in the menu." : "VOD monitoring disabled for this reseller (their results are kept).";
+  });
+}
+
+export async function saveTmdbKeyAction(fd: FormData) {
+  const admin = await requireSuperAdmin();
+  return act("/admin/settings", async () => {
+    if (str(fd, "remove") === "1") {
+      await saveTmdbKey(null);
+      await audit({ actor: actorOf(admin), action: "admin.tmdb_key_removed", ip: await clientIp() });
+      return "TMDB key removed — VOD scans stop until a key is entered.";
+    }
+    const key = str(fd, "tmdbKey", 1000).replace(/^Bearer\s+/i, "");
+    if (key.length < 16) throw new UserError("Paste the TMDB “API Key” or “API Read Access Token” (themoviedb.org → Settings → API).");
+    try {
+      const tv = await new TmdbClient(key).tv("1396");
+      if (!tv) throw new Error("unexpected answer");
+    } catch (e) {
+      throw new UserError(`TMDB did not accept this key: ${(e as Error).message}`);
+    }
+    await saveTmdbKey(key);
+    await audit({ actor: actorOf(admin), action: "admin.tmdb_key_saved", ip: await clientIp() });
+    return "TMDB key works and is saved (encrypted).";
   });
 }
 

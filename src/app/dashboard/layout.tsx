@@ -31,6 +31,7 @@ const NAV: NavItem[] = [
   { href: "/dashboard/bouquets", label: "Bouquets", icon: "❖" },
   { href: "/dashboard/payments", label: "Payment gateways", icon: "▭" },
   { href: "/dashboard/maxplayer", label: "MaxPlayer", icon: "▶" },
+  { href: "/dashboard/vod", label: "VOD monitoring", icon: "◫" },
   { section: "Account" },
   { href: "/dashboard/notifications", label: "Notifications", icon: "🔔" },
   { href: "/dashboard/mail", label: "Email sending", icon: "✉" },
@@ -58,7 +59,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const billingOn = await platformBillingEnabled();
   const plansOn = await resellerPlansEnabled();
   const notices = await dashboardAnnouncements(reseller.id);
-  const nav = plansOn ? NAV : NAV.filter((i) => !("href" in i) || i.href !== "/dashboard/billing");
+  const hidden = new Set([...(plansOn ? [] : ["/dashboard/billing"]), ...(reseller.vodMonitorEnabled ? [] : ["/dashboard/vod"])]);
+  const nav = NAV.filter((i) => !("href" in i) || !hidden.has(i.href));
   const banners: React.ReactNode[] = [];
   if (!billingOn) banners.push(<Banner key="g" tone="red">The billing service is temporarily paused by the platform. New checkouts and activations are on hold.</Banner>);
   if (!reseller.billingEnabled) banners.push(<Banner key="b" tone="red">The billing module is disabled for your account. Contact the platform administrator.</Banner>);

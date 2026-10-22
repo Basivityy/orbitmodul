@@ -13,7 +13,8 @@ import { audit } from "@/lib/audit";
 import { accessDetailsEmail } from "@/lib/customerEmails";
 import { refreshPublicUrl } from "@/lib/publicUrl";
 import { maxPlayerClientFactory, PrismaActivationStore, PrismaMaxPlayerStore, prismaPanelFactory } from "@/lib/activationStore";
-import { EmailJob, enqueueActivation, enqueueEmail, enqueueMaxPlayer, maintenanceQueue, maxPlayerQueueSize, QUEUE_ACTIVATION, QUEUE_EMAIL, QUEUE_MAINTENANCE, QUEUE_MAXPLAYER } from "@/lib/queue";
+import { EmailJob, enqueueActivation, enqueueEmail, enqueueMaxPlayer, enqueueVodScan, maintenanceQueue, maxPlayerQueueSize, QUEUE_ACTIVATION, QUEUE_EMAIL, QUEUE_MAINTENANCE, QUEUE_MAXPLAYER, QUEUE_VOD } from "@/lib/queue";
+import { scanReseller } from "@/lib/vod";
 import { storeBaseUrl } from "@/lib/urls";
 import { platformBillingEnabled } from "@/lib/settings";
 
@@ -86,6 +87,9 @@ const maxPlayerWorker: Worker = new Worker(
 
 const emailWorker = new Worker(QUEUE_EMAIL, async (job: Job<EmailJob>) => sendTemplatedEmail(job.data), { connection, concurrency: 5 });
 
+// VOD monitoring: one library scan at a time (each scan reads the panel slowly, 3 requests in parallel).
+const vodWorker = new Worker(QUEUE_VOD, async (job: Job<{ resellerId: string }>) => scanReseller(job.data.resellerId), { connection, concurrency: 1, lockDuration: 120_000 });
+
 async function sweep() {
   await refreshPublicUrl(0);
   const now = new Date();
@@ -138,6 +142,25 @@ async function sweep() {
     for (const s of mpStuck) await enqueueMaxPlayer(s.id, { retry: true });
   }
 
+  // 3c) VOD monitoring: daily automatic scan; scans interrupted by a restart are released.
+  await db.vodMonitor.updateMany({ where: { status: "RUNNING", updatedAt: { lt: new Date(now.getTime() - 30 * 60_000) } }, data: { status: "ERROR", lastError: "The scan was interrupted (server restart). It runs again automatically." } });
+  const vodDue = await db.vodMonitor.findMany({
+    where: {
+      autoScan: true,
+      reseller: { vodMonitorEnabled: true, status: "ACTIVE" },
+      OR: [
+        { status: { in: ["IDLE", "DONE", "ERROR"] }, OR: [{ lastScanAt: null }, { lastScanAt: { lt: new Date(now.getTime() - 24 * 3600_000) } }] },
+        { status: "QUEUED", updatedAt: { lt: new Date(now.getTime() - 6 * 3600_000) } },
+      ],
+    },
+    select: { resellerId: true },
+    take: 20,
+  });
+  for (const v of vodDue) {
+    await db.vodMonitor.update({ where: { resellerId: v.resellerId }, data: { status: "QUEUED" } });
+    await enqueueVodScan(v.resellerId);
+  }
+
   // 4) SaaS trials / lapsed periods
   await db.saasSubscription.updateMany({ where: { status: "TRIALING", trialEndsAt: { lt: now } }, data: { status: "EXPIRED" } });
 
@@ -151,7 +174,7 @@ async function sweep() {
 
 const maintenanceWorker = new Worker(QUEUE_MAINTENANCE, async () => sweep(), { connection, concurrency: 1 });
 
-for (const w of [activationWorker, maxPlayerWorker, emailWorker, maintenanceWorker]) {
+for (const w of [activationWorker, maxPlayerWorker, emailWorker, maintenanceWorker, vodWorker]) {
   w.on("failed", (job, err) => console.error(`[${w.name}] job ${job?.id} failed (attempt ${job?.attemptsMade}): ${err.message}`));
   w.on("error", (err) => console.error(`[${w.name}]`, err.message));
 }
@@ -168,7 +191,7 @@ main().catch((e) => {
 
 async function shutdown() {
   console.log("[worker] shutting down");
-  await Promise.allSettled([activationWorker.close(), maxPlayerWorker.close(), emailWorker.close(), maintenanceWorker.close()]);
+  await Promise.allSettled([activationWorker.close(), maxPlayerWorker.close(), emailWorker.close(), maintenanceWorker.close(), vodWorker.close()]);
   await db.$disconnect();
   process.exit(0);
 }

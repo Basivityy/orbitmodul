@@ -479,3 +479,19 @@ Prvo uvijek: `cd /root/xui-billing`
    cd /root && cp xui-billing/.env /root/env-backup && unzip -o xui-billing.zip && cp /root/env-backup xui-billing/.env
    cd /root/xui-billing && chmod +x docker/entrypoint.sh scripts/*.sh && docker compose up -d --build
    ```
+
+## VOD praćenje (epizode koje fale)
+
+**Super Admin, jednom:**
+1. Napravi besplatan nalog na themoviedb.org → Settings → API → zatraži API key (Developer).
+2. Admin → Settings → kartica **VOD monitoring (TMDB)** → zalijepi „API Key” ili „API Read Access Token” → **Test & save**.
+
+**Za svakog resellera kome odobriš:** Admin → Resellers → [reseller] → **Enable VOD monitoring**. Reseller tada u meniju dobija **VOD monitoring**.
+
+**Reseller:**
+1. VOD monitoring → upiše adresu servera (DNS), username i password jedne linije koja ima serije bukete → **Test & save line**.
+2. **Scan now** (prvi put traje nekoliko minuta za velike liste). Poslije toga provjera ide sama svaki dan.
+3. Tabovi: *Missing episodes*, *New episode out* (izašla u zadnjih 14 dana, nema je na panelu), *Not matched* (upiše TMDB broj i klikne Check), *Completed* (sve izašle sezone su na panelu — najavljene sezone se ne računaju), *Not monitored*.
+4. **CSV** — lista za onoga ko dodaje sadržaj.
+
+Sistem samo čita listu i ništa ne mijenja na panelu.

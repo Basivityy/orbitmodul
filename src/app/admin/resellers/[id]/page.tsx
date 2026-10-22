@@ -9,14 +9,14 @@ import { saasActive } from "@/lib/saas";
 import { resellerStats } from "@/lib/stats";
 import { resellerPlansEnabled } from "@/lib/settings";
 import { storeBaseUrl } from "@/lib/urls";
-import { approveResellerAction, rejectResellerAction, setResellerBillingAction, setResellerPlanAction, setResellerStatusAction } from "../../actions";
+import { approveResellerAction, rejectResellerAction, setResellerBillingAction, setResellerPlanAction, setResellerStatusAction, setResellerVodAction } from "../../actions";
 
 export const metadata = { title: "Reseller" };
 
 export default async function AdminResellerPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string>> }) {
   await requireAdmin();
   const [{ id }, sp] = await Promise.all([params, searchParams]);
-  const r = await db.reseller.findUnique({ where: { id }, include: { owner: true, saas: { include: { plan: true } }, panels: true, gateways: true, maxPlayer: true } });
+  const r = await db.reseller.findUnique({ where: { id }, include: { owner: true, saas: { include: { plan: true } }, panels: true, gateways: true, maxPlayer: true, vodMonitor: true } });
   if (!r) notFound();
   const [stats, plans, orders, audits, plansOn] = await Promise.all([
     resellerStats(r.id),
@@ -78,6 +78,17 @@ export default async function AdminResellerPage({ params, searchParams }: { para
               </SubmitButton>
             </form>
             <p className="hint">Billing module: {r.billingEnabled ? "enabled" : "disabled"}. When disabled, checkouts are closed and paid orders wait ON HOLD.</p>
+            <form action={setResellerVodAction}>
+              {hidden}
+              <input type="hidden" name="enabled" value={r.vodMonitorEnabled ? "false" : "true"} />
+              <SubmitButton className={r.vodMonitorEnabled ? "btn-secondary w-full" : "btn-primary w-full"} confirm={r.vodMonitorEnabled ? "Disable VOD monitoring for this reseller?" : undefined}>
+                {r.vodMonitorEnabled ? "Disable VOD monitoring" : "◫ Enable VOD monitoring"}
+              </SubmitButton>
+            </form>
+            <p className="hint">
+              VOD monitoring: {r.vodMonitorEnabled ? "enabled" : "off"}
+              {r.vodMonitor ? <> · last scan {r.vodMonitor.lastScanAt ? <DateTime value={r.vodMonitor.lastScanAt} /> : "never"} · {r.vodMonitor.seriesCount} series, {r.vodMonitor.missingCount} with missing episodes{r.vodMonitor.status === "ERROR" ? ` · error: ${r.vodMonitor.lastError ?? ""}` : ""}</> : r.vodMonitorEnabled ? " · no monitoring line entered yet" : ""}.
+            </p>
             <Link className="btn-secondary w-full" href={`/admin/customers?reseller=${r.id}`}>☷ All customers &amp; lines of this reseller</Link>
             <Link className="btn-secondary w-full" href={`/admin/announcements?target=${r.id}`}>📣 Send a dashboard notification</Link>
             {r.approvalStatus === "APPROVED" && <p className="hint">Approved{r.approvedAt ? <> on <DateTime value={r.approvedAt} dateOnly /></> : " (existing account)"}.</p>}

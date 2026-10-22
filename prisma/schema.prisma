@@ -200,6 +200,8 @@ model Reseller {
   customDomain         String?       @unique
   customDomainVerified Boolean       @default(false)
   domainVerifyToken    String?
+  /// Super Admin switch: the reseller may use "VOD monitoring" (missing series episodes).
+  vodMonitorEnabled    Boolean       @default(false)
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
@@ -222,6 +224,8 @@ model Reseller {
   mailSettings    ResellerMail?
   announcements          Announcement[]
   announcementDismissals AnnouncementDismissal[]
+  vodMonitor             VodMonitor?
+  vodSeries              VodSeries[]
 
   @@index([approvalStatus])
 }
@@ -769,4 +773,68 @@ model AnnouncementDismissal {
 
   @@id([announcementId, resellerId])
   @@index([resellerId])
+}
+
+// VOD monitoring: one read-only line per reseller used to read the series library of the panel.
+model VodMonitor {
+  id           String    @id @default(cuid())
+  resellerId   String    @unique
+  serverUrl    String
+  username     String
+  passwordEnc  String
+  autoScan     Boolean   @default(true)
+  // IDLE | QUEUED | RUNNING | DONE | ERROR
+  status       String    @default("IDLE")
+  progress     Int       @default(0)
+  total        Int       @default(0)
+  lastScanAt   DateTime?
+  lastError    String?
+  seriesCount  Int       @default(0)
+  missingCount Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+}
+
+// Result of the last check of one series (compared with TMDB).
+model VodSeries {
+  id            String    @id @default(cuid())
+  resellerId    String
+  seriesId      String
+  name          String
+  category      String?
+  cover         String?
+  year          String?
+  tmdbId        String?
+  // TMDB id typed in by the reseller (wins over the panel / search)
+  tmdbOverride  String?
+  tmdbName      String?
+  ignored       Boolean   @default(false)
+  // COMPLETE | MISSING | NEW_EPISODE | NOT_MATCHED | ERROR
+  status        String
+  haveCount     Int       @default(0)
+  expectedCount Int       @default(0)
+  missingCount  Int       @default(0)
+  // [{ "s": 3, "e": 5 }, ...] and per-season expected counts { "3": 10 }
+  missing       Json      @default("[]")
+  seasons       Json      @default("{}")
+  lastAired     DateTime?
+  // next episode announced on TMDB (not aired yet — never counted as missing)
+  nextAir       DateTime?
+  error         String?
+  checkedAt     DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+
+  reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+
+  @@unique([resellerId, seriesId])
+  @@index([resellerId, status])
+}
+
+// TMDB answers cached for 24 hours (shared by all resellers).
+model TmdbCache {
+  key       String   @id
+  data      Json
+  fetchedAt DateTime @default(now())
 }

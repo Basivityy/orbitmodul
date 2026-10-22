@@ -5,7 +5,9 @@ import { env } from "@/lib/env";
 import { platformBillingConfigured } from "@/lib/platformBilling";
 import { getSetting, SETTING_BILLING_ENABLED, SETTING_GLOBAL_NOTICE, SETTING_REGISTRATION_OPEN, SETTING_RESELLER_PLANS, SETTING_STORE_TEST_PAYMENTS } from "@/lib/settings";
 import { getPlatformSmtpSetting, platformSmtpSource } from "@/lib/mailer";
-import { savePlatformSettingsAction, savePlatformSmtpAction, savePublicUrlAction, sendTestEmailAction } from "../actions";
+import { savePlatformSettingsAction, savePlatformSmtpAction, savePublicUrlAction, saveTmdbKeyAction, sendTestEmailAction } from "../actions";
+import { getTmdbKey } from "@/lib/vod";
+import { db } from "@/lib/db";
 import { refreshPublicUrl } from "@/lib/publicUrl";
 
 export const metadata = { title: "Global settings" };
@@ -14,6 +16,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const me = await requireSuperAdmin();
   const sp = await searchParams;
   const publicUrl = await refreshPublicUrl(0);
+  const [tmdbSet, vodResellers] = await Promise.all([getTmdbKey().then(Boolean), db.reseller.count({ where: { vodMonitorEnabled: true } })]);
   const [billing, registration, notice, testPayments, resellerPlans, smtp, smtpSource] = await Promise.all([
     getSetting<boolean>(SETTING_BILLING_ENABLED, true),
     getSetting<boolean>(SETTING_REGISTRATION_OPEN, true),
@@ -40,6 +43,25 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             </div>
             <SubmitButton>Save</SubmitButton>
           </form>
+        </Card>
+        <Card title="VOD monitoring (TMDB)" description={<>Resellers you enable (Resellers → reseller → “Enable VOD monitoring”) see which series episodes are missing on their panel. Episode lists come from TMDB — one key for the whole platform. Enabled for {vodResellers} reseller(s).</>}>
+          <form action={saveTmdbKeyAction} className="space-y-3">
+            <div>
+              <label className="label" htmlFor="tmdbKey">TMDB API key</label>
+              <input className="input font-mono" id="tmdbKey" name="tmdbKey" type="password" autoComplete="off" placeholder={tmdbSet ? "•••••• saved — paste a new one to replace" : "API Key or API Read Access Token"} required />
+              <p className="hint">Free: create an account on themoviedb.org → Settings → API → request an API key (type “Developer”, personal use). Paste the “API Key” or the “API Read Access Token”. It is tested, then stored encrypted.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <SubmitButton>Test &amp; save</SubmitButton>
+              <span className={tmdbSet ? "badge-green" : "badge-gray"}>{tmdbSet ? "key saved" : "no key"}</span>
+            </div>
+          </form>
+          {tmdbSet && (
+            <form action={saveTmdbKeyAction} className="mt-3">
+              <input type="hidden" name="remove" value="1" />
+              <SubmitButton className="btn-ghost btn-sm text-rose-600" confirm="Remove the TMDB key? VOD scans stop.">Remove key</SubmitButton>
+            </form>
+          )}
         </Card>
         <Card title="Platform address (domain)" className="lg:col-span-2">
           <form action={savePublicUrlAction} className="space-y-3">
