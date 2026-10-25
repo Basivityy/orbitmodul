@@ -202,6 +202,8 @@ model Reseller {
   domainVerifyToken    String?
   /// Super Admin switch: the reseller may use "VOD monitoring" (missing series episodes).
   vodMonitorEnabled    Boolean       @default(false)
+  /// Super Admin switch: the reseller may use the Website API (keys, webhooks, widget).
+  partnerApiEnabled    Boolean       @default(true)
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
@@ -228,6 +230,8 @@ model Reseller {
   vodSeries              VodSeries[]
   telegram               ResellerTelegram?
   lineImports            LineImport[]
+  apiKeys                ResellerApiKey[]
+  webhook                ResellerWebhook?
 
   @@index([approvalStatus])
 }
@@ -891,4 +895,35 @@ model LineImport {
   panel    PanelIntegration @relation(fields: [panelId], references: [id], onDelete: Cascade)
 
   @@unique([resellerId, panelId])
+}
+
+// Website API keys of a reseller (server-to-server). Only a SHA-256 hash is stored.
+model ResellerApiKey {
+  id         String    @id @default(cuid())
+  resellerId String
+  name       String
+  prefix     String
+  keyHash    String    @unique
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+
+  @@index([resellerId])
+}
+
+// Where the module reports events to the reseller's website (signed with the secret).
+model ResellerWebhook {
+  id         String    @id @default(cuid())
+  resellerId String    @unique
+  url        String
+  secretEnc  String
+  enabled    Boolean   @default(true)
+  lastStatus String?
+  lastSentAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
 }

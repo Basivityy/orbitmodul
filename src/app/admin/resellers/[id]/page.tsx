@@ -9,7 +9,7 @@ import { saasActive } from "@/lib/saas";
 import { resellerStats } from "@/lib/stats";
 import { resellerPlansEnabled } from "@/lib/settings";
 import { storeBaseUrl } from "@/lib/urls";
-import { approveResellerAction, rejectResellerAction, setResellerBillingAction, setResellerPlanAction, setResellerStatusAction, setResellerVodAction, confirmResellerEmailAction } from "../../actions";
+import { approveResellerAction, rejectResellerAction, setResellerBillingAction, setResellerPlanAction, setResellerStatusAction, setResellerVodAction, confirmResellerEmailAction, setResellerApiAction } from "../../actions";
 
 export const metadata = { title: "Reseller" };
 
@@ -85,6 +85,13 @@ export default async function AdminResellerPage({ params, searchParams }: { para
                 <p className="hint mt-1">{r.owner.email} has not confirmed the email — the store cannot sell until it is confirmed.</p>
               </form>
             )}
+            <form action={setResellerApiAction}>
+              {hidden}
+              <input type="hidden" name="enabled" value={r.partnerApiEnabled ? "false" : "true"} />
+              <SubmitButton className="btn-secondary w-full" confirm={r.partnerApiEnabled ? "Switch off the Website API, webhooks and widget for this reseller? Their website integration stops at once." : undefined}>
+                {r.partnerApiEnabled ? "Disable Website API & widget" : "Enable Website API & widget"}
+              </SubmitButton>
+            </form>
             <form action={setResellerVodAction}>
               {hidden}
               <input type="hidden" name="enabled" value={r.vodMonitorEnabled ? "false" : "true"} />

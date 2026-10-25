@@ -46,6 +46,9 @@ export async function createManualOrder(input: {
   notifyCustomer: boolean;
   maxPlayer?: boolean; // override the package setting
   note?: string;
+  /** Website API: the reseller's own order reference makes a repeated request return the same order. */
+  idempotencyKey?: string;
+  numberPrefix?: string;
 }): Promise<Order> {
   const pkg = await db.package.findFirst({ where: { id: input.packageId, resellerId: input.resellerId } });
   if (!pkg) throw new CheckoutError("Package not found.");
@@ -66,7 +69,7 @@ export async function createManualOrder(input: {
   const id = randomToken(10);
   const order = await db.order.create({
     data: {
-      number: orderNumber("MAN"),
+      number: orderNumber(input.numberPrefix ?? "MAN"),
       resellerId: input.resellerId,
       customerId: customer.id,
       packageId: pkg.id,
@@ -79,7 +82,7 @@ export async function createManualOrder(input: {
       providerPaymentId: `manual-${id}`,
       packageSnapshot: snap as unknown as Prisma.InputJsonValue,
       accessToken: randomToken(24),
-      idempotencyKey: `manual-${id}`,
+      idempotencyKey: input.idempotencyKey ?? `manual-${id}`,
       notifyCustomer: input.notifyCustomer,
       // Reseller-chosen credentials: used by the engine instead of generated ones.
       lineUsername: input.username || null,
@@ -88,6 +91,47 @@ export async function createManualOrder(input: {
   });
   if (input.amountMinor > 0) {
     await db.transaction.create({ data: { resellerId: input.resellerId, orderId: order.id, type: "PAYMENT", status: "SUCCEEDED", amountCents: input.amountMinor, currency: pkg.currency, provider: "MANUAL", providerRef: `manual-${id}` } });
+  }
+  await createInvoice(order.id);
+  await enqueueActivation(order.id).catch((e) => console.error("[queue] activation enqueue failed; sweeper will retry", e.message));
+  return order;
+}
+
+/**
+ * Extension paid outside the store (reseller / Website API): a PAID renewal order that the
+ * normal activation engine applies to the existing line. Reseller-API panels extend by the
+ * linked panel package; other panels by the package duration.
+ */
+export async function createManualRenewal(input: { resellerId: string; subscriptionId: string; packageId: string; amountMinor: number; idempotencyKey?: string; numberPrefix?: string }): Promise<Order> {
+  const s = await db.subscription.findFirst({ where: { id: input.subscriptionId, resellerId: input.resellerId }, include: { panel: true } });
+  if (!s || !s.xuiLineId) throw new CheckoutError("Line not found.");
+  const pkg = await db.package.findFirst({ where: { id: input.packageId, resellerId: input.resellerId } });
+  if (!pkg) throw new CheckoutError("Package not found.");
+  if (pkg.panelId !== s.panelId) throw new CheckoutError("This package is for another panel than the line.");
+  const snap = await snapshotPackage(pkg.id, input.resellerId, input.amountMinor, pkg.currency);
+  if (/reseller/i.test(s.panel.apiUrl) && !snap.panelPackageId) throw new CheckoutError("This package is not linked to a panel package (Packages & prices → Panel package).");
+  const ref = randomToken(10);
+  const order = await db.order.create({
+    data: {
+      number: orderNumber(input.numberPrefix ?? "REN"),
+      resellerId: input.resellerId,
+      customerId: s.customerId,
+      packageId: pkg.id,
+      subscriptionId: s.id,
+      kind: "RENEWAL",
+      status: "PAID",
+      paidAt: new Date(),
+      amountCents: input.amountMinor,
+      currency: pkg.currency,
+      provider: "MANUAL",
+      providerPaymentId: `manual-${ref}`,
+      packageSnapshot: snap as unknown as Prisma.InputJsonValue,
+      accessToken: randomToken(24),
+      idempotencyKey: input.idempotencyKey ?? `manual-${ref}`,
+    },
+  });
+  if (input.amountMinor > 0) {
+    await db.transaction.create({ data: { resellerId: input.resellerId, orderId: order.id, subscriptionId: s.id, type: "PAYMENT", status: "SUCCEEDED", amountCents: input.amountMinor, currency: pkg.currency, provider: "MANUAL", providerRef: order.providerPaymentId } });
   }
   await createInvoice(order.id);
   await enqueueActivation(order.id).catch((e) => console.error("[queue] activation enqueue failed; sweeper will retry", e.message));

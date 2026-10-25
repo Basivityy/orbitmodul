@@ -18,6 +18,7 @@ const NAV: NavItem[] = [
   { href: "/dashboard/packages", label: "Packages & prices", icon: "▤" },
   { href: "/dashboard/codes", label: "Activation codes", icon: "#" },
   { href: "/dashboard/app-api", label: "App API", icon: "⌘" },
+  { href: "/dashboard/website-api", label: "Website API & widget", icon: "⇄" },
   { href: "/dashboard/coupons", label: "Coupons", icon: "%" },
   { href: "/dashboard/store", label: "Store page", icon: "⌂" },
   { section: "Customers" },
@@ -62,7 +63,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const billingOn = await platformBillingEnabled();
   const plansOn = await resellerPlansEnabled();
   const notices = await dashboardAnnouncements(reseller.id);
-  const hidden = new Set([...(plansOn ? [] : ["/dashboard/billing"]), ...(reseller.vodMonitorEnabled ? [] : ["/dashboard/vod"])]);
+  const hidden = new Set([...(plansOn ? [] : ["/dashboard/billing"]), ...(reseller.vodMonitorEnabled ? [] : ["/dashboard/vod"]), ...(reseller.partnerApiEnabled ? [] : ["/dashboard/website-api"])]);
   const nav = NAV.filter((i) => !("href" in i) || !hidden.has(i.href));
   const banners: React.ReactNode[] = [];
   if (!billingOn) banners.push(<Banner key="g" tone="red">The billing service is temporarily paused by the platform. New checkouts and activations are on hold.</Banner>);

@@ -45,3 +45,23 @@ test("line scan: walks the range, imports own lines, resume point and stop", asy
   assert.ok(s.scanned >= 100 && s.scanned < 1000);
   assert.equal(s.nextId, s.scanned + 1, "resume exactly after the last finished id");
 });
+
+test("line scan: panel 'busy' answers slow the scan down instead of stopping it", async () => {
+  const { isPanelBusy, AdaptiveThrottle } = await import("../../src/core/lineScan.js");
+  assert.equal(isPanelBusy({ statusCode: 503, message: "x" }), true);
+  assert.equal(isPanelBusy(new Error("HTTP 503: <html><title>503 Service Temporarily Unavailable</title>")), true);
+  assert.equal(isPanelBusy(new Error("HTTP 429")), true);
+  assert.equal(isPanelBusy(new Error("Invalid API key")), false);
+  let t = 1000;
+  const th = new AdaptiveThrottle(3000, () => t);
+  assert.equal(th.waitMs(), 0);
+  th.busy(0);
+  assert.equal(th.gapMs, 250);
+  assert.equal(th.waitMs(), 3000 + 250);
+  th.busy(1);
+  assert.equal(th.waitMs(), 6000 + 500);
+  t += 10_000;
+  assert.equal(th.waitMs(), 500, "cooldown over, gap stays");
+  for (let i = 0; i < 100; i++) th.ok();
+  assert.equal(th.gapMs, 0, "panel answers normally again → full speed");
+});

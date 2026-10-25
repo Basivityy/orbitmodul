@@ -516,3 +516,13 @@ Panel ne zna dati listu linija (get_lines je prazan), zato modul provjerava ID p
 ## Prodaja na drugom sajtu → link za aktivaciju (email prvo)
 Prodajni sajt (Sellix, WooCommerce, tvoj sajt…) nakon uplate kupcu da kod ili ga odmah preusmjeri na link iz **Activation codes** (`…/activate?code=XXXX-XXXX-XXXX`).
 Kupac na tom linku **prvo upiše email** → modul mu odmah pošalje mail sa istim linkom (šablon „Activation link”). Zatim bira uređaj i username. Ako odustane, liniju napravi kasnije iz maila. Kod se može iskoristiti samo jednom.
+
+## Website API & widget (prodaja preko sajta resellera)
+Meni **Website API & widget**:
+1. **Widget** (bez programiranja): kopiraj 2 reda koda na svoj sajt (i Wix: Embed HTML) → paketi sa dugmetom Buy, Extend, I have a code.
+2. **API ključevi**: za backend sajta (WooCommerce, PHP…). Ključ se vidi samo jednom. Dokumentacija: dugme **API documentation** (i `PARTNER_API.md`).
+3. **Webhook**: modul javlja sajtu kad je linija napravljena/produžena, aktivacija pala, linija ističe. Potpisano tajnim ključem.
+Super Admin može resellerima isključiti API i widget (Admin → Resellers → [reseller]).
+
+## Import i greška 503
+Ako panel vrati 503 (previše zahtjeva), import sam uspori, sačeka i nastavi — ne staje više sa greškom.

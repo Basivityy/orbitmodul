@@ -13,10 +13,11 @@ import { audit } from "@/lib/audit";
 import { accessDetailsEmail } from "@/lib/customerEmails";
 import { refreshPublicUrl } from "@/lib/publicUrl";
 import { maxPlayerClientFactory, PrismaActivationStore, PrismaMaxPlayerStore, prismaPanelFactory } from "@/lib/activationStore";
-import { EmailJob, enqueueActivation, enqueueEmail, enqueueMaxPlayer, enqueueLineImport, enqueueVodScan, maintenanceQueue, maxPlayerQueueSize, QUEUE_ACTIVATION, QUEUE_EMAIL, QUEUE_LINEIMPORT, QUEUE_MAINTENANCE, QUEUE_MAXPLAYER, QUEUE_VOD } from "@/lib/queue";
+import { EmailJob, enqueueActivation, enqueueEmail, enqueueMaxPlayer, enqueueLineImport, enqueueVodScan, maintenanceQueue, maxPlayerQueueSize, QUEUE_ACTIVATION, QUEUE_EMAIL, QUEUE_LINEIMPORT, QUEUE_MAINTENANCE, QUEUE_MAXPLAYER, QUEUE_VOD, QUEUE_WEBHOOK } from "@/lib/queue";
 import { runLineImportChunk } from "@/lib/lineScanJob";
 import { scanReseller } from "@/lib/vod";
 import { dailySummary, notifyActivation, notifyReseller } from "@/lib/telegram";
+import { deliverWebhook, emitActivationWebhook, emitWebhook, type WebhookJob } from "@/lib/webhooks";
 import { storeBaseUrl } from "@/lib/urls";
 import { platformBillingEnabled } from "@/lib/settings";
 
@@ -49,6 +50,7 @@ const activationWorker = new Worker(
       if (r.final) {
         await audit({ action: "activation.failed", target: job.data.orderId, meta: { error: r.error } });
         await notifyActivation(job.data.orderId, r);
+        await emitActivationWebhook(job.data.orderId, r);
         return r; // stays ACTIVATION_FAILED, visible for manual retry
       }
       throw new Error(r.error); // BullMQ retries with exponential backoff
@@ -57,6 +59,7 @@ const activationWorker = new Worker(
       if (r.maxPlayer) await enqueueMaxPlayer(r.subscriptionId);
       await sendActivationEmail(job.data.orderId).catch((e) => console.error("[worker] activation email failed", e.message));
       if (!r.test) await notifyActivation(job.data.orderId, r);
+      await emitActivationWebhook(job.data.orderId, { status: "completed", subscriptionId: r.subscriptionId });
     }
     return r;
   },
@@ -93,6 +96,9 @@ const emailWorker = new Worker(QUEUE_EMAIL, async (job: Job<EmailJob>) => sendTe
 
 // "Import all my lines": two resellers' scans at a time, each in chunks of ids.
 const lineImportWorker = new Worker(QUEUE_LINEIMPORT, async (job: Job<{ importId: string }>) => runLineImportChunk(job.data.importId), { connection, concurrency: 2, lockDuration: 300_000 });
+
+// Webhooks to resellers' websites (retried with backoff by the queue).
+const webhookWorker = new Worker(QUEUE_WEBHOOK, async (job: Job<WebhookJob>) => deliverWebhook(job.data), { connection, concurrency: 5 });
 
 // VOD monitoring: one library scan at a time (each scan reads the panel slowly, 3 requests in parallel).
 const vodWorker = new Worker(QUEUE_VOD, async (job: Job<{ resellerId: string }>) => scanReseller(job.data.resellerId), { connection, concurrency: 1, lockDuration: 120_000 });
@@ -136,6 +142,7 @@ async function sweep() {
       vars: { packageName: s.package.name, expiresAt: formatEmailDate(s.expiresAt!), daysLeft: String(Math.max(daysUntil(s.expiresAt!, now), 1)), renewUrl: `${storeBaseUrl(s.reseller)}/renew` },
     });
     await db.subscription.update({ where: { id: s.id }, data: { reminderSentAt: now } });
+    await emitWebhook(s.resellerId, "line.expiring", { line_id: s.id, expires_at: s.expiresAt!.toISOString(), days_left: Math.max(daysUntil(s.expiresAt!, now), 1) });
   }
 
   // 3b) MaxPlayer accounts whose job was lost (e.g. Redis restart) — waiting longer than 10 minutes.
@@ -202,7 +209,7 @@ async function sweep() {
 
 const maintenanceWorker = new Worker(QUEUE_MAINTENANCE, async () => sweep(), { connection, concurrency: 1 });
 
-for (const w of [activationWorker, maxPlayerWorker, emailWorker, maintenanceWorker, vodWorker, lineImportWorker]) {
+for (const w of [activationWorker, maxPlayerWorker, emailWorker, maintenanceWorker, vodWorker, lineImportWorker, webhookWorker]) {
   w.on("failed", (job, err) => console.error(`[${w.name}] job ${job?.id} failed (attempt ${job?.attemptsMade}): ${err.message}`));
   w.on("error", (err) => console.error(`[${w.name}]`, err.message));
 }
@@ -219,7 +226,7 @@ main().catch((e) => {
 
 async function shutdown() {
   console.log("[worker] shutting down");
-  await Promise.allSettled([activationWorker.close(), maxPlayerWorker.close(), emailWorker.close(), maintenanceWorker.close(), vodWorker.close(), lineImportWorker.close()]);
+  await Promise.allSettled([activationWorker.close(), maxPlayerWorker.close(), emailWorker.close(), maintenanceWorker.close(), vodWorker.close(), lineImportWorker.close(), webhookWorker.close()]);
   await db.$disconnect();
   process.exit(0);
 }

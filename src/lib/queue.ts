@@ -8,6 +8,7 @@ export const QUEUE_EMAIL = "email";
 export const QUEUE_MAINTENANCE = "maintenance";
 export const QUEUE_VOD = "vod";
 export const QUEUE_LINEIMPORT = "lineimport";
+export const QUEUE_WEBHOOK = "webhook";
 
 const g = globalThis as unknown as { queues?: Record<string, Queue> };
 
@@ -85,10 +86,15 @@ export async function enqueueVodScan(resellerId: string): Promise<void> {
 }
 
 /** Next chunk of an "Import all my lines" scan. */
-export async function enqueueLineImport(importId: string): Promise<void> {
+export async function enqueueLineImport(importId: string, delayMs = 0): Promise<void> {
   // No deduplication: the running chunk queues the next one. Double runs are prevented by the
   // atomic QUEUED → RUNNING claim in runLineImportChunk.
-  await queue(QUEUE_LINEIMPORT).add("chunk", { importId }, { jobId: `li-${importId}-${Date.now()}`, attempts: 1, removeOnComplete: { age: 24 * 3600 }, removeOnFail: { age: 7 * 24 * 3600 } });
+  await queue(QUEUE_LINEIMPORT).add("chunk", { importId }, { jobId: `li-${importId}-${Date.now()}`, delay: delayMs, attempts: 1, removeOnComplete: { age: 24 * 3600 }, removeOnFail: { age: 7 * 24 * 3600 } });
+}
+
+/** Event for the reseller's website — retried with backoff (about 1 day in total). */
+export async function enqueueWebhook(job: { resellerId: string; id: string; event: string; created: string; data: Record<string, unknown> }): Promise<void> {
+  await queue(QUEUE_WEBHOOK).add("deliver", job, { jobId: job.id, attempts: 8, backoff: { type: "exponential", delay: 30_000 }, removeOnComplete: { age: 3 * 24 * 3600 }, removeOnFail: { age: 14 * 24 * 3600 } });
 }
 
 export function maintenanceQueue(): Queue {

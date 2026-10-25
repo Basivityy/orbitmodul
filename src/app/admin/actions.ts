@@ -115,6 +115,17 @@ export async function setResellerVodAction(fd: FormData) {
   });
 }
 
+export async function setResellerApiAction(fd: FormData) {
+  const admin = await requireAdmin();
+  const id = str(fd, "resellerId", 40);
+  return act(`/admin/resellers/${id}`, async () => {
+    const enabled = str(fd, "enabled") === "true";
+    await db.reseller.update({ where: { id }, data: { partnerApiEnabled: enabled } });
+    await audit({ actor: actorOf(admin), resellerId: id, action: enabled ? "admin.website_api_enabled" : "admin.website_api_disabled", ip: await clientIp() });
+    return enabled ? "Website API and widget enabled for this reseller." : "Website API, webhooks and widget disabled for this reseller (keys stop working at once).";
+  });
+}
+
 export async function saveTmdbKeyAction(fd: FormData) {
   const admin = await requireSuperAdmin();
   return act("/admin/settings", async () => {

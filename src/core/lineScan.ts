@@ -83,3 +83,34 @@ export async function scanRange(opts: {
   );
   return r;
 }
+
+/** The panel (or its nginx) says "too busy": 503/502/504/429 — slow down and retry, never give up the import. */
+export function isPanelBusy(e: unknown): boolean {
+  const status = (e as { statusCode?: number })?.statusCode;
+  if (status === 429 || status === 502 || status === 503 || status === 504) return true;
+  return /HTTP (429|502|503|504)|Service (Temporarily )?Unavailable|Too Many Requests|Bad Gateway|Gateway Time-?out/i.test(String((e as Error)?.message ?? ""));
+}
+
+/**
+ * Shared by all parallel requests of a scan: after a "busy" answer every request waits a cooldown
+ * and keeps a growing gap; the gap shrinks again while the panel answers normally.
+ */
+export class AdaptiveThrottle {
+  gapMs = 0;
+  private cooldownUntil = 0;
+  constructor(private readonly maxGapMs = 3000, private readonly now: () => number = Date.now) {}
+
+  /** How long the next request should wait. */
+  waitMs(): number {
+    return Math.max(this.cooldownUntil - this.now(), 0) + this.gapMs;
+  }
+
+  ok(): void {
+    this.gapMs = Math.max(0, this.gapMs - 10);
+  }
+
+  busy(attempt: number): void {
+    this.gapMs = Math.min(this.maxGapMs, this.gapMs + 250);
+    this.cooldownUntil = Math.max(this.cooldownUntil, this.now() + Math.min(60_000, 3000 * 2 ** attempt));
+  }
+}

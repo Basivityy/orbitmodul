@@ -21,7 +21,13 @@ const nextConfig = {
     },
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    const noFrame = securityHeaders.filter((h) => h.key !== "X-Frame-Options");
+    return [
+      // Everything except the store widget may only be framed by the platform itself.
+      { source: "/:path((?!embed/).*)", headers: securityHeaders },
+      // Store widget (/embed/<store>, used by /widget.js) may be shown on resellers' websites.
+      { source: "/embed/:path*", headers: [...noFrame, { key: "Content-Security-Policy", value: "frame-ancestors *" }] },
+    ];
   },
 };
 

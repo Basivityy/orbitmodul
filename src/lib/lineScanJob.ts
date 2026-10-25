@@ -3,7 +3,7 @@ import { createPanelAdapter } from "@/core/adapters/xui";
 import type { LineInfo } from "@/core/adapters/types";
 import { PanelApiError } from "@/core/adapters/types";
 import { placeholderEmail } from "@/core/importedCustomers";
-import { defaultCeiling, SCAN_CHUNK, scanEnd, scanRange } from "@/core/lineScan";
+import { AdaptiveThrottle, defaultCeiling, isPanelBusy, SCAN_CHUNK, scanEnd, scanRange } from "@/core/lineScan";
 import { panelHost } from "@/core/catalog";
 import { db } from "./db";
 import { importPackage } from "./lineImport";
@@ -11,6 +11,7 @@ import { assertCustomerCapacity, CheckoutError } from "./orders";
 import { enqueueLineImport } from "./queue";
 
 export class LineScanError extends Error {}
+class PanelBusyError extends Error {}
 
 type Panel = { id: string; type: string; apiUrl: string; apiKeyEnc: string; extraParams: unknown; lineOwnerId: string | null };
 
@@ -117,13 +118,26 @@ export async function runLineImportChunk(importId: string): Promise<void> {
   const pkg = await importPackage(job.resellerId, job.panelId, job.reseller.defaultCurrency);
   const end = scanEnd(job);
   const to = Math.min(job.nextId + SCAN_CHUNK - 1, end);
+  // The panel's nginx answers 503 when asked too fast: every parallel request then slows down
+  // together (shared throttle) and retries; it speeds up again while the panel answers normally.
+  const throttle = new AdaptiveThrottle();
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const getLine = async (id: string) => {
     for (let attempt = 0; ; attempt++) {
+      const wait = throttle.waitMs();
+      if (wait > 0) await sleep(wait);
       try {
-        return await adapter.getLine(id);
+        const line = await adapter.getLine(id);
+        throttle.ok();
+        return line;
       } catch (e) {
+        if (isPanelBusy(e)) {
+          if (attempt >= 7) throw new PanelBusyError();
+          throttle.busy(attempt);
+          continue;
+        }
         if (attempt >= 2 || !(e instanceof PanelApiError && e.retryable)) throw e;
-        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        await sleep(2000 * (attempt + 1));
       }
     }
   };
@@ -133,8 +147,8 @@ export async function runLineImportChunk(importId: string): Promise<void> {
       from: job.nextId,
       to,
       memberId: job.memberId,
-      // ~8 light get_line calls at a time: tens of ids per second, still gentle for the panel.
-      concurrency: 8,
+      // 4 light get_line calls at a time; slower automatically when the panel says it is busy.
+      concurrency: 4,
       getLine,
       onMine: (line) => upsertPanelLine(job.resellerId, job.panel, line, { pkgId: pkg.id, currency: job.reseller.defaultCurrency, now: new Date() }),
       shouldStop: async () => (await db.lineImport.findUnique({ where: { id: job.id }, select: { status: true } }))?.status === "STOPPED",
@@ -147,6 +161,12 @@ export async function runLineImportChunk(importId: string): Promise<void> {
       },
     });
   } catch (e) {
+    if (e instanceof PanelBusyError) {
+      // Panel still overloaded after several minutes of waiting: pause and continue by itself.
+      await db.lineImport.update({ where: { id: job.id }, data: { status: "QUEUED", lastError: "The panel is busy (503) — the import pauses and continues automatically in 2 minutes." } });
+      await enqueueLineImport(job.id, 120_000);
+      return;
+    }
     const msg = e instanceof CheckoutError ? e.message : `Panel error: ${String((e as Error).message).slice(0, 300)}. Click “Continue” to resume where it stopped.`;
     await db.lineImport.update({ where: { id: job.id }, data: { status: "ERROR", lastError: msg } });
     return;
@@ -164,7 +184,7 @@ export async function runLineImportChunk(importId: string): Promise<void> {
       found: job.found + res.found,
       imported: job.imported + res.imported,
       updated: job.updated + res.updated,
-      ...(stoppedByUser ? {} : done ? { status: "DONE", finishedAt: new Date() } : { status: "QUEUED" }),
+      ...(stoppedByUser ? {} : done ? { status: "DONE", finishedAt: new Date(), lastError: null } : { status: "QUEUED", lastError: null }),
     },
   });
   if (!stoppedByUser && !done) await enqueueLineImport(job.id);
