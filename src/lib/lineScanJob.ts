@@ -138,6 +138,13 @@ export async function runLineImportChunk(importId: string): Promise<void> {
       getLine,
       onMine: (line) => upsertPanelLine(job.resellerId, job.panel, line, { pkgId: pkg.id, currency: job.reseller.defaultCurrency, now: new Date() }),
       shouldStop: async () => (await db.lineImport.findUnique({ where: { id: job.id }, select: { status: true } }))?.status === "STOPPED",
+      // Live progress (absolute values: base of this job + what this chunk did so far).
+      onProgress: async (p) => {
+        await db.lineImport.update({
+          where: { id: job.id },
+          data: { nextId: p.nextId, lastHitId: Math.max(job.lastHitId, p.lastHitId), scanned: job.scanned + p.scanned, found: job.found + p.found, imported: job.imported + p.imported, updated: job.updated + p.updated },
+        });
+      },
     });
   } catch (e) {
     const msg = e instanceof CheckoutError ? e.message : `Panel error: ${String((e as Error).message).slice(0, 300)}. Click “Continue” to resume where it stopped.`;
@@ -153,10 +160,10 @@ export async function runLineImportChunk(importId: string): Promise<void> {
     data: {
       nextId: res.nextId,
       lastHitId,
-      scanned: { increment: res.scanned },
-      found: { increment: res.found },
-      imported: { increment: res.imported },
-      updated: { increment: res.updated },
+      scanned: job.scanned + res.scanned,
+      found: job.found + res.found,
+      imported: job.imported + res.imported,
+      updated: job.updated + res.updated,
       ...(stoppedByUser ? {} : done ? { status: "DONE", finishedAt: new Date() } : { status: "QUEUED" }),
     },
   });

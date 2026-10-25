@@ -47,6 +47,8 @@ export async function scanRange(opts: {
   getLine: (id: string) => Promise<LineInfo | null>;
   onMine: (line: LineInfo) => Promise<"imported" | "updated" | "skipped">;
   shouldStop?: () => boolean | Promise<boolean>;
+  /** Called every 50 checked ids with the totals so far (for a live progress bar). */
+  onProgress?: (r: ScanResult) => void | Promise<void>;
   pauseMs?: number;
 }): Promise<ScanResult> {
   const r: ScanResult = { scanned: 0, found: 0, imported: 0, updated: 0, lastHitId: 0, nextId: opts.from, stopped: false };
@@ -71,7 +73,10 @@ export async function scanRange(opts: {
         finished.add(id);
         // nextId = first id not yet finished (all ids below it are done) — safe resume point.
         while (finished.has(r.nextId)) finished.delete(r.nextId++);
-        if (++done % 100 === 0 && opts.shouldStop && (await opts.shouldStop())) r.stopped = true;
+        if (++done % 50 === 0) {
+          if (opts.onProgress) await opts.onProgress({ ...r });
+          if (opts.shouldStop && (await opts.shouldStop())) r.stopped = true;
+        }
         if (opts.pauseMs) await new Promise((res) => setTimeout(res, opts.pauseMs));
       }
     }),

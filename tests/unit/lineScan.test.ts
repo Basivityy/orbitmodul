@@ -23,8 +23,10 @@ test("line scan: walks the range, imports own lines, resume point and stop", asy
   const panel = new Map<number, LineInfo>();
   for (let i = 1; i <= 300; i++) if (i < 50 || i > 59) panel.set(i, line(i, i % 10 === 0 ? "491" : "7"));
   const imported: string[] = [];
+  const progress: number[] = [];
   const r = await scanRange({
     from: 1, to: 300, memberId: "491", concurrency: 4,
+    onProgress: (p) => { progress.push(p.scanned); },
     getLine: async (id) => panel.get(Number(id)) ?? null,
     onMine: async (l) => { imported.push(l.id); return l.id === "100" ? "updated" : "imported"; },
   });
@@ -35,10 +37,11 @@ test("line scan: walks the range, imports own lines, resume point and stop", asy
   assert.equal(r.lastHitId, 300);
   assert.equal(r.nextId, 301);
   assert.ok(!imported.includes("55"));
+  assert.deepEqual(progress, [50, 100, 150, 200, 250, 300], "live progress every 50 ids");
 
   let calls = 0;
   const s = await scanRange({ from: 1, to: 1000, memberId: "491", concurrency: 2, getLine: async () => null, onMine: async () => "skipped", shouldStop: () => ++calls >= 2 });
   assert.equal(s.stopped, true);
-  assert.ok(s.scanned >= 200 && s.scanned < 1000);
+  assert.ok(s.scanned >= 100 && s.scanned < 1000);
   assert.equal(s.nextId, s.scanned + 1, "resume exactly after the last finished id");
 });
