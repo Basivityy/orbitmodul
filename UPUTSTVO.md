@@ -495,3 +495,16 @@ Prvo uvijek: `cd /root/xui-billing`
 4. **CSV** — lista za onoga ko dodaje sadržaj.
 
 Sistem samo čita listu i ništa ne mijenja na panelu.
+
+## Expiring lines (podsjetnici)
+Meni **Expiring lines**: linije koje ističu u 7 ili 30 dana i one koje su istekle a nisu produžene.
+Za svaku liniju: **WhatsApp** (otvara poruku spremnu za slanje; sa upisanim brojem ide direktno tom kupcu), **Viber**, **Copy text**, **Email**. Dugme **Email all** šalje podsjetnik svima koji imaju email (preskače one podsjetene u zadnja 24h).
+
+## Statistics
+Meni **Statistics**: nove linije, produženja i prihod po mjesecima (12 mjeseci), procenat produženja (90 dana), prodaja po paketima.
+
+## Telegram alerts
+Meni **Telegram alerts**: reseller napravi svog bota kod @BotFather, zalijepi token, pritisne Start u botu i klikne **Connect my chat**. Dobija poruku za svaku novu liniju, produženje i neuspjelu aktivaciju, plus jutarnji sažetak.
+
+## Odobravanje resellera i email
+Kad odobriš resellera, njegov email se smatra potvrđenim (prodavnica može prodavati odmah). Za već odobrene resellere sa nepotvrđenim emailom: Admin → Resellers → [reseller] → **Confirm email manually**.

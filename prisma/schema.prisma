@@ -226,6 +226,7 @@ model Reseller {
   announcementDismissals AnnouncementDismissal[]
   vodMonitor             VodMonitor?
   vodSeries              VodSeries[]
+  telegram               ResellerTelegram?
 
   @@index([approvalStatus])
 }
@@ -436,6 +437,8 @@ model Customer {
   resellerId String
   email      String
   name       String?
+  /// Phone for WhatsApp / Viber reminders (entered by the reseller), international format.
+  phone      String?
   notes      String?
   createdAt  DateTime @default(now())
 
@@ -837,4 +840,22 @@ model TmdbCache {
   key       String   @id
   data      Json
   fetchedAt DateTime @default(now())
+}
+
+// Telegram notifications for a reseller (own bot): sales, renewals, failures, daily summary.
+model ResellerTelegram {
+  id             String    @id @default(cuid())
+  resellerId     String    @unique
+  botTokenEnc    String
+  chatId         String?
+  enabled        Boolean   @default(true)
+  notifySales    Boolean   @default(true)
+  notifyFailures Boolean   @default(true)
+  dailySummary   Boolean   @default(true)
+  lastSummaryAt  DateTime?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
 }

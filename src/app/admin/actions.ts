@@ -51,11 +51,27 @@ export async function approveResellerAction(fd: FormData) {
     if (!r) throw new UserError("Reseller not found.");
     if (r.approvalStatus === "APPROVED") return `${r.storeName} is already approved.`;
     await db.reseller.update({ where: { id }, data: { approvalStatus: "APPROVED", approvedAt: new Date(), approvalNote: null } });
+    // The admin vouched for this account: an unconfirmed email must not keep the store from selling.
+    if (!r.owner.emailVerifiedAt) await db.user.update({ where: { id: r.ownerUserId }, data: { emailVerifiedAt: new Date() } });
     // With paid plans switched on, the free trial starts now (not while the account was waiting).
     if (await resellerPlansEnabled()) await startTrial(id);
     await enqueueEmail({ resellerId: null, template: "reseller_approved", to: r.owner.email, vars: { name: r.owner.name, storeName: r.storeName, loginUrl: `${env.appUrl}/login` } }).catch((e) => console.error("[approve] email enqueue failed", e.message));
     await audit({ actor: actorOf(admin), resellerId: id, action: "admin.reseller_approved", ip: await clientIp() });
     return `${r.storeName} approved. ${r.owner.email} got an email and can sign in now.`;
+  });
+}
+
+/** Confirms the reseller owner's email by hand (e.g. the confirmation email never arrived). */
+export async function confirmResellerEmailAction(fd: FormData) {
+  const admin = await requireAdmin();
+  const id = str(fd, "resellerId", 40);
+  return act(`/admin/resellers/${id}`, async () => {
+    const r = await db.reseller.findUnique({ where: { id }, include: { owner: true } });
+    if (!r) throw new UserError("Reseller not found.");
+    if (r.owner.emailVerifiedAt) return "Email is already confirmed.";
+    await db.user.update({ where: { id: r.ownerUserId }, data: { emailVerifiedAt: new Date() } });
+    await audit({ actor: actorOf(admin), resellerId: id, action: "admin.reseller_email_confirmed", ip: await clientIp() });
+    return `${r.owner.email} confirmed — the store can sell now (if nothing else blocks it).`;
   });
 }
 

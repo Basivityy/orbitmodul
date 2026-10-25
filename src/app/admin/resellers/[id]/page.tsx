@@ -9,7 +9,7 @@ import { saasActive } from "@/lib/saas";
 import { resellerStats } from "@/lib/stats";
 import { resellerPlansEnabled } from "@/lib/settings";
 import { storeBaseUrl } from "@/lib/urls";
-import { approveResellerAction, rejectResellerAction, setResellerBillingAction, setResellerPlanAction, setResellerStatusAction, setResellerVodAction } from "../../actions";
+import { approveResellerAction, rejectResellerAction, setResellerBillingAction, setResellerPlanAction, setResellerStatusAction, setResellerVodAction, confirmResellerEmailAction } from "../../actions";
 
 export const metadata = { title: "Reseller" };
 
@@ -78,6 +78,13 @@ export default async function AdminResellerPage({ params, searchParams }: { para
               </SubmitButton>
             </form>
             <p className="hint">Billing module: {r.billingEnabled ? "enabled" : "disabled"}. When disabled, checkouts are closed and paid orders wait ON HOLD.</p>
+            {!r.owner.emailVerifiedAt && (
+              <form action={confirmResellerEmailAction}>
+                {hidden}
+                <SubmitButton className="btn-primary w-full">✓ Confirm email manually</SubmitButton>
+                <p className="hint mt-1">{r.owner.email} has not confirmed the email — the store cannot sell until it is confirmed.</p>
+              </form>
+            )}
             <form action={setResellerVodAction}>
               {hidden}
               <input type="hidden" name="enabled" value={r.vodMonitorEnabled ? "false" : "true"} />

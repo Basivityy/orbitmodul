@@ -13,6 +13,7 @@ export const dynamic = "force-dynamic";
 
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Overview", icon: "◎", exact: true },
+  { href: "/dashboard/stats", label: "Statistics", icon: "▦" },
   { section: "Sell" },
   { href: "/dashboard/packages", label: "Packages & prices", icon: "▤" },
   { href: "/dashboard/codes", label: "Activation codes", icon: "#" },
@@ -24,6 +25,7 @@ const NAV: NavItem[] = [
   { href: "/dashboard/customers/existing", label: "Load existing line", icon: "⇩", exact: true },
   { href: "/dashboard/customers", label: "Customers", icon: "☺", exact: true },
   { href: "/dashboard/subscriptions", label: "Subscriptions", icon: "↻" },
+  { href: "/dashboard/expiring", label: "Expiring lines", icon: "⏳" },
   { href: "/dashboard/orders", label: "Orders & activations", icon: "✓" },
   { href: "/dashboard/transactions", label: "Transactions", icon: "€" },
   { section: "Integrations" },
@@ -34,6 +36,7 @@ const NAV: NavItem[] = [
   { href: "/dashboard/vod", label: "VOD monitoring", icon: "◫" },
   { section: "Account" },
   { href: "/dashboard/notifications", label: "Notifications", icon: "🔔" },
+  { href: "/dashboard/telegram", label: "Telegram alerts", icon: "✈" },
   { href: "/dashboard/mail", label: "Email sending", icon: "✉" },
   { href: "/dashboard/emails", label: "Email texts", icon: "✎" },
   { href: "/dashboard/billing", label: "Plan & billing", icon: "★" },

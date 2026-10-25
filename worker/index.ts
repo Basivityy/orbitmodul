@@ -15,6 +15,7 @@ import { refreshPublicUrl } from "@/lib/publicUrl";
 import { maxPlayerClientFactory, PrismaActivationStore, PrismaMaxPlayerStore, prismaPanelFactory } from "@/lib/activationStore";
 import { EmailJob, enqueueActivation, enqueueEmail, enqueueMaxPlayer, enqueueVodScan, maintenanceQueue, maxPlayerQueueSize, QUEUE_ACTIVATION, QUEUE_EMAIL, QUEUE_MAINTENANCE, QUEUE_MAXPLAYER, QUEUE_VOD } from "@/lib/queue";
 import { scanReseller } from "@/lib/vod";
+import { dailySummary, notifyActivation, notifyReseller } from "@/lib/telegram";
 import { storeBaseUrl } from "@/lib/urls";
 import { platformBillingEnabled } from "@/lib/settings";
 
@@ -46,6 +47,7 @@ const activationWorker = new Worker(
     if (r.status === "failed") {
       if (r.final) {
         await audit({ action: "activation.failed", target: job.data.orderId, meta: { error: r.error } });
+        await notifyActivation(job.data.orderId, r);
         return r; // stays ACTIVATION_FAILED, visible for manual retry
       }
       throw new Error(r.error); // BullMQ retries with exponential backoff
@@ -53,6 +55,7 @@ const activationWorker = new Worker(
     if (r.status === "completed") {
       if (r.maxPlayer) await enqueueMaxPlayer(r.subscriptionId);
       await sendActivationEmail(job.data.orderId).catch((e) => console.error("[worker] activation email failed", e.message));
+      if (!r.test) await notifyActivation(job.data.orderId, r);
     }
     return r;
   },
@@ -159,6 +162,20 @@ async function sweep() {
   for (const v of vodDue) {
     await db.vodMonitor.update({ where: { resellerId: v.resellerId }, data: { status: "QUEUED" } });
     await enqueueVodScan(v.resellerId);
+  }
+
+  // 3d) Telegram daily summary for resellers, once a day after 07:00 UTC.
+  if (now.getUTCHours() >= 7) {
+    const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const due = await db.resellerTelegram.findMany({
+      where: { enabled: true, dailySummary: true, chatId: { not: null }, reseller: { status: "ACTIVE" }, OR: [{ lastSummaryAt: null }, { lastSummaryAt: { lt: dayStart } }] },
+      select: { id: true, resellerId: true },
+      take: 50,
+    });
+    for (const t of due) {
+      await db.resellerTelegram.update({ where: { id: t.id }, data: { lastSummaryAt: now } });
+      await notifyReseller(t.resellerId, "summary", await dailySummary(t.resellerId, now)).catch(() => false);
+    }
   }
 
   // 4) SaaS trials / lapsed periods
