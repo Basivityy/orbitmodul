@@ -66,7 +66,7 @@ export default async function LoadExistingLinePage({ searchParams }: { searchPar
               );
             })}
             <ul className="list-disc space-y-1 pl-5 text-sm muted">
-              <li>Your panel cannot list lines, so every line id is checked one by one and only lines that <b>belong to your account</b> are taken. For a big panel this takes 1–3 hours — it continues on its own, also after a restart.</li>
+              <li>Your panel cannot list lines, so every line id is checked one by one and only lines that <b>belong to your account</b> are taken. For a big panel this takes about 20–60 minutes — it continues on its own, also after a restart.</li>
               <li>Highest line ID: the newest line on the panel (open the newest line, the number after id=). Leave empty — we estimate it and keep going while your lines turn up.</li>
               <li>Imported lines have no email until the customer pays once on your store. No MaxPlayer account is created for them.</li>
             </ul>

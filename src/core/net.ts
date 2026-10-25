@@ -20,13 +20,21 @@ export function isPrivateIp(ip: string): boolean {
  * Guards outbound requests to reseller-supplied URLs (SSRF protection): the host must
  * resolve only to public addresses. Set ALLOW_PRIVATE_PANEL_URLS=true for LAN panels.
  */
+// Hosts already checked recently: an import makes tens of thousands of calls to the same panel,
+// one DNS lookup every few minutes is enough.
+const publicHostCache = new Map<string, number>();
+const PUBLIC_HOST_TTL_MS = 5 * 60_000;
+
 export async function assertPublicUrl(url: string, allowPrivate = process.env.ALLOW_PRIVATE_PANEL_URLS === "true"): Promise<void> {
   if (allowPrivate) return;
   const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
+  if ((publicHostCache.get(host) ?? 0) > Date.now()) return;
   const addrs = isIP(host) ? [{ address: host }] : await lookup(host, { all: true }).catch(() => {
     throw new Error(`Cannot resolve host ${host}`);
   });
   if (addrs.length === 0 || addrs.some((a) => isPrivateIp(a.address))) {
     throw new Error(`The address ${host} points to a private or internal network and is not allowed.`);
   }
+  if (publicHostCache.size > 500) publicHostCache.clear();
+  publicHostCache.set(host, Date.now() + PUBLIC_HOST_TTL_MS);
 }

@@ -8,7 +8,7 @@ import type { LineInfo } from "./adapters/types";
 /** After the highest own line found, keep looking this many ids further before stopping. */
 export const SCAN_TAIL = 5000;
 /** Ids checked per worker job (the job re-queues itself, so a restart resumes where it stopped). */
-export const SCAN_CHUNK = 1500;
+export const SCAN_CHUNK = 3000;
 
 /** Last id to check: the panel's highest known id, or further when own lines keep turning up. */
 export function scanEnd(s: { ceiling: number; lastHitId: number }): number {

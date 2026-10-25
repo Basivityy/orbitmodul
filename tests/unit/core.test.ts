@@ -150,3 +150,10 @@ test("prisma schema: every relation has its opposite side (prisma validate P1012
   if (r.error) return; // python3 not available
   assert.equal(r.status, 0, r.stdout + r.stderr);
 });
+
+test("net: a public host is checked once and then cached; private stays blocked", async () => {
+  await assertPublicUrl("http://1.1.1.1/a", false);
+  await assertPublicUrl("http://1.1.1.1/b", false); // cached
+  await assert.rejects(assertPublicUrl("http://127.0.0.1/x", false), /private or internal/);
+  await assert.rejects(assertPublicUrl("http://10.0.0.5/x", false), /private or internal/);
+});

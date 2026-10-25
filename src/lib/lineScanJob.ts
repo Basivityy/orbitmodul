@@ -133,8 +133,8 @@ export async function runLineImportChunk(importId: string): Promise<void> {
       from: job.nextId,
       to,
       memberId: job.memberId,
-      concurrency: 3,
-      pauseMs: 50,
+      // ~8 light get_line calls at a time: tens of ids per second, still gentle for the panel.
+      concurrency: 8,
       getLine,
       onMine: (line) => upsertPanelLine(job.resellerId, job.panel, line, { pkgId: pkg.id, currency: job.reseller.defaultCurrency, now: new Date() }),
       shouldStop: async () => (await db.lineImport.findUnique({ where: { id: job.id }, select: { status: true } }))?.status === "STOPPED",
