@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { refreshPublicUrl } from "@/lib/publicUrl";
 import { env } from "@/lib/env";
+import { Suspense } from "react";
+import { NavProgress } from "@/components/NavProgress";
 
 export const metadata: Metadata = {
   title: { default: env.platformName, template: `%s · ${env.platformName}` },
@@ -32,7 +34,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <script dangerouslySetInnerHTML={{ __html: fontScript }} />
         <noscript><link rel="stylesheet" href={FONT_URL} /></noscript>
       </head>
-      <body className="min-h-screen font-sans">{children}</body>
+      <body className="min-h-screen font-sans">
+        <Suspense fallback={null}>
+          <NavProgress />
+        </Suspense>
+        {children}
+      </body>
     </html>
   );
 }

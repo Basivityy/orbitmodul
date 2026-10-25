@@ -22,8 +22,14 @@ function userMessage(e: unknown): string {
 
 function withParam(path: string, key: string, value: string): string {
   const [base, hash] = path.split("#");
-  const sep = base.includes("?") ? "&" : "?";
-  return `${base}${sep}${key}=${encodeURIComponent(value.slice(0, 300))}${hash ? "#" + hash : ""}`;
+  const [p, q = ""] = base.split("?");
+  const params = new URLSearchParams(q);
+  // An older message in the address is replaced, never stacked.
+  for (const k of ["ok", "err", "n"]) params.delete(k);
+  params.set(key, value.slice(0, 300));
+  // Unique per answer: the page always "changes", so the loading indicator always ends.
+  params.set("n", Date.now().toString(36));
+  return `${p}?${params.toString()}${hash ? "#" + hash : ""}`;
 }
 
 /**
