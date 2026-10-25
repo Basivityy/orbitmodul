@@ -194,6 +194,18 @@ export const DEFAULT_TEMPLATES: TemplateDef[] = [
     ),
     variables: ["storeName", "loginUrl"],
   },
+  {
+    key: "activation_link",
+    audience: "customer",
+    label: "Activation link (after paying on another site)",
+    when: "When a customer arrives from your selling site with a code and enters the email — so the link is never lost, even if they do not finish.",
+    subject: "Vaš link za aktivaciju / Your activation link — {{storeName}}",
+    body: bi(
+      "Zdravo,\n\nHvala na kupovini! Ovim linkom pravite (ili produžavate) svoju liniju:\n{{activationUrl}}\n\nVaš kod: {{code}}\nPaket: {{packageName}}\n\nAko ste liniju već napravili, ovaj email možete zanemariti — pristupne podatke ste dobili u posebnom emailu.\n\n— {{storeName}}",
+      "Hello,\n\nThank you for your purchase! Use this link to create (or extend) your line:\n{{activationUrl}}\n\nYour code: {{code}}\nPackage: {{packageName}}\n\nIf you already created your line, you can ignore this email — your login details were sent in a separate email.\n\n— {{storeName}}",
+    ),
+    variables: ["storeName", "activationUrl", "code", "packageName"],
+  },
 ];
 
 export function getDefaultTemplate(key: string): TemplateDef {

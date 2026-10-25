@@ -6,7 +6,8 @@ import { customerUsernameError } from "@/core/usernames";
 import { appCustomerEmail } from "@/core/appApi";
 import { db } from "./db";
 import { assertCustomerCapacity, CheckoutError, createInvoice, snapshotPackage, usernameTaken } from "./orders";
-import { enqueueActivation } from "./queue";
+import { enqueueActivation, enqueueEmail } from "./queue";
+import { isPlaceholderEmail } from "@/core/importedCustomers";
 
 export const MAX_CODES_PER_BATCH = 500;
 
@@ -17,6 +18,23 @@ export async function createCodes(resellerId: string, packageId: string, count: 
   while (codes.size < count) codes.add(generateCode());
   await db.activationCode.createMany({ data: Array.from(codes).map((code) => ({ resellerId, packageId, code, batch })), skipDuplicates: true });
   return Array.from(codes);
+}
+
+/**
+ * Customer arrived from the selling site with a code: remember the email and mail them the
+ * activation link right away, so the link is never lost if they do not finish now.
+ * The same email is mailed at most once per 10 minutes.
+ */
+export async function claimCode(resellerId: string, input: { code: string; email: string; activationUrl: string }): Promise<{ sent: boolean }> {
+  const row = await db.activationCode.findFirst({ where: { code: input.code, resellerId }, include: { package: true } });
+  if (!row || row.status === "VOID") throw new CheckoutError("This code is not valid. Check it and try again.");
+  if (row.status === "USED") throw new CheckoutError("This code was already used — your login details were sent to the email entered then. Check your spam folder too.");
+  const recent = row.claimEmail === input.email && !!row.claimSentAt && row.claimSentAt.getTime() > Date.now() - 10 * 60_000;
+  if (!recent) {
+    await enqueueEmail({ resellerId, template: "activation_link", to: input.email, vars: { activationUrl: input.activationUrl, code: row.code, packageName: row.package.name } });
+  }
+  await db.activationCode.update({ where: { id: row.id }, data: { claimEmail: input.email, ...(recent ? {} : { claimSentAt: new Date() }) } });
+  return { sent: !recent };
 }
 
 export type RedeemInput =
@@ -62,6 +80,12 @@ export async function redeemCode(resellerId: string, input: RedeemInput): Promis
     customerId = sub.customerId;
     subscriptionId = sub.id;
     email = sub.customer.email;
+    // A line imported from the panel has no email yet: the one the customer gave becomes theirs.
+    const given = input.email?.trim().toLowerCase();
+    if (given && isPlaceholderEmail(email) && !(await db.customer.findUnique({ where: { resellerId_email: { resellerId, email: given } }, select: { id: true } }))) {
+      await db.customer.update({ where: { id: sub.customerId }, data: { email: given } });
+      email = given;
+    }
   }
 
   const snap = await snapshotPackage(pkg.id, resellerId, 0, pkg.currency);

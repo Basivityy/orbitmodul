@@ -512,3 +512,7 @@ Kad odobriš resellera, njegov email se smatra potvrđenim (prodavnica može pro
 ## Import all my lines (svi korisnici resellera)
 Customers → **Load existing line** → kartica **Import all my lines** → **Import all my lines**.
 Panel ne zna dati listu linija (get_lines je prazan), zato modul provjerava ID po ID (get_line) i uzima samo linije čiji je vlasnik (member_id) taj reseller. Radi u pozadini (1–3 sata za veliki panel), nastavlja sam i nakon restarta. Dugmad: **Stop**, **Continue**, **Check for new lines** (samo nove linije poslije zadnjeg importa). Ništa se ne mijenja na panelu; uvezene linije nemaju email dok kupac jednom ne plati, i ne prave MaxPlayer nalog.
+
+## Prodaja na drugom sajtu → link za aktivaciju (email prvo)
+Prodajni sajt (Sellix, WooCommerce, tvoj sajt…) nakon uplate kupcu da kod ili ga odmah preusmjeri na link iz **Activation codes** (`…/activate?code=XXXX-XXXX-XXXX`).
+Kupac na tom linku **prvo upiše email** → modul mu odmah pošalje mail sa istim linkom (šablon „Activation link”). Zatim bira uređaj i username. Ako odustane, liniju napravi kasnije iz maila. Kod se može iskoristiti samo jednom.

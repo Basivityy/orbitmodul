@@ -710,6 +710,9 @@ model ActivationCode {
   orderId        String?
   subscriptionId String?
   lineUsername   String?
+  /// Email the customer entered when they arrived from the selling site (the link was mailed there).
+  claimEmail     String?
+  claimSentAt    DateTime?
 
   reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
   package  Package  @relation(fields: [packageId], references: [id], onDelete: Cascade)

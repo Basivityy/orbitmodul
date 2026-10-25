@@ -14,8 +14,8 @@ import { clientIp, rateLimit } from "@/lib/ratelimit";
 import { resolveStore } from "@/lib/storefront";
 import { normalizeCode } from "@/core/codes";
 import { maskUsername } from "@/core/usernames";
-import { redeemCode } from "@/lib/codes";
-import { findActivationDevice, pickLang, translateError } from "@/core/i18n/codeFlow";
+import { claimCode, redeemCode } from "@/lib/codes";
+import { findActivationDevice, pickLang, t, translateError } from "@/core/i18n/codeFlow";
 import { storeTestPaymentsEnabled } from "@/lib/settings";
 import { TestProvider } from "@/core/payments/test";
 import { handlePaymentEvents } from "@/lib/orders";
@@ -168,6 +168,36 @@ export async function storeTestPayAction(fd: FormData) {
   });
 }
 
+/** Arrival from the selling site: save the email and mail the activation link before anything else. */
+export async function claimCodeAction(fd: FormData) {
+  const store = await resolveStore(str(fd, "slug", 300));
+  const rawCode = str(fd, "code", 40);
+  const lang = pickLang(str(fd, "lang", 5));
+  return act(`${store.base}/activate?code=${encodeURIComponent(rawCode)}&lang=${lang}&change=1`, async () => {
+    try {
+      if (!store.canSell) throw new UserError("This store is not active right now. Please contact the store.");
+      const ip = await clientIp();
+      if (!(await rateLimit(`claim:${ip}`, 10, 600))) throw new UserError("Too many attempts. Please wait a few minutes.");
+      const code = normalizeCode(rawCode);
+      if (!code) throw new UserError("Enter the 12-character code, e.g. A7K2-9QXM-4TPL.");
+      const email = str(fd, "email", 254).trim().toLowerCase();
+      if (!isValidEmail(email)) throw new UserError("Enter your email address — we send you this link there.");
+      if (!(await rateLimit(`claim-code:${code}`, 6, 86_400))) throw new UserError("Too many attempts. Please wait a few minutes.");
+      const activationUrl = `${store.absoluteBase}/activate?code=${encodeURIComponent(code)}&lang=${lang}`;
+      try {
+        await claimCode(store.reseller.id, { code, email, activationUrl });
+      } catch (e) {
+        if (e instanceof CheckoutError) throw new UserError(e.message);
+        throw e;
+      }
+      return { redirect: `${store.base}/activate?code=${encodeURIComponent(code)}&lang=${lang}`, message: t(lang, "saved", { email }) };
+    } catch (e) {
+      if (e instanceof UserError) throw new UserError(translateError(lang, e.message));
+      throw e;
+    }
+  });
+}
+
 /** Universal activation link: redeem a one-time code for a new line or an extension. */
 export async function redeemCodeAction(fd: FormData) {
   const store = await resolveStore(str(fd, "slug", 300));
@@ -205,7 +235,8 @@ export async function redeemCodeAction(fd: FormData) {
         if (!sub) throw new UserError("We could not find this username. If your line was bought before, ask the store to add it — then try again.");
         subscriptionId = sub.id;
       }
-      const r = await redeemCode(store.reseller.id, { mode: "extend", code, subscriptionId });
+      const given = str(fd, "email", 254).trim().toLowerCase();
+      const r = await redeemCode(store.reseller.id, { mode: "extend", code, subscriptionId, email: isValidEmail(given) ? given : null });
       return { redirect: `${store.base}/order/${r.accessToken}?lang=${lang}` };
     } catch (e) {
       if (e instanceof CheckoutError) throw new UserError(e.message);

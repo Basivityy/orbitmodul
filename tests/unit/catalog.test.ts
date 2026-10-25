@@ -260,3 +260,12 @@ test("store: a reseller-API package is only sold when linked to a panel package"
   assert.equal(packageSellable({ externalPackageId: "2", panel: { apiUrl: "http://panel.tv/resellerapi" } }), true);
   assert.equal(packageSellable({ externalPackageId: null, panel: { apiUrl: "http://panel.tv/adminapi" } }), true);
 });
+
+test("code pages: email-first step is translated, and its errors too", async () => {
+  const { t, translateError } = await import("../../src/core/i18n/codeFlow.js");
+  assert.equal(t("bhs", "saveBtn"), "Nastavi");
+  assert.match(t("de", "saved", { email: "a@b.de" }), /a@b\.de/);
+  assert.match(t("en", "savedLater", { email: "x@y.z" }), /x@y\.z/);
+  assert.match(translateError("bhs", "Enter your email address — we send you this link there."), /tamo vam šaljemo ovaj link/);
+  assert.match(translateError("de", "This code was already used — your login details were sent to the email entered then. Check your spam folder too."), /bereits verwendet/);
+});

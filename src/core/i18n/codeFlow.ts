@@ -68,6 +68,13 @@ const T = {
     step1: "Instalirajte aplikaciju {app} na telefon, tablet ili TV (lista ispod).",
     step2: "Otvorite {app} i prijavite se svojim usernameom i lozinkom.",
     step3: "Kanali se učitavaju automatski — uživajte!",
+    // email first (link saved before the line is made)
+    saveTitle: "Upišite svoj email",
+    saveSub: "Odmah vam šaljemo ovaj link na email — ako sada ne završite, liniju možete napraviti kasnije iz emaila.",
+    saveBtn: "Nastavi",
+    saved: "Link je poslan na {email}. Sada izaberite uređaj i napravite liniju.",
+    savedLater: "Link je sačuvan i u vašem emailu ({email}).",
+    changeEmail: "Promijeni email",
   },
   en: {
     title: "Activate your subscription",
@@ -119,6 +126,12 @@ const T = {
     step1: "Install the {app} app on your phone, tablet or TV (see the list below).",
     step2: "Open {app} and sign in with your username and password.",
     step3: "Your channels load automatically — enjoy!",
+    saveTitle: "Enter your email",
+    saveSub: "We email you this link right away — if you don't finish now, you can create your line later from the email.",
+    saveBtn: "Continue",
+    saved: "The link was sent to {email}. Now choose your device and create your line.",
+    savedLater: "The link is also saved in your email ({email}).",
+    changeEmail: "Change email",
   },
   de: {
     title: "Abonnement aktivieren",
@@ -170,6 +183,12 @@ const T = {
     step1: "Installieren Sie die App {app} auf Handy, Tablet oder TV (Liste unten).",
     step2: "Öffnen Sie {app} und melden Sie sich mit Benutzername und Passwort an.",
     step3: "Die Sender werden automatisch geladen — viel Spaß!",
+    saveTitle: "Geben Sie Ihre E-Mail ein",
+    saveSub: "Wir senden Ihnen diesen Link sofort per E-Mail — wenn Sie jetzt nicht fertig werden, können Sie den Zugang später aus der E-Mail erstellen.",
+    saveBtn: "Weiter",
+    saved: "Der Link wurde an {email} gesendet. Wählen Sie jetzt Ihr Gerät und erstellen Sie Ihren Zugang.",
+    savedLater: "Der Link ist auch in Ihrer E-Mail gespeichert ({email}).",
+    changeEmail: "E-Mail ändern",
   },
 } as const;
 
@@ -254,6 +273,8 @@ const ERRORS: Array<{ en: RegExp; bhs: string; de: string }> = [
   { en: /^This code was already used/, bhs: "Ovaj kod je već iskorišten.", de: "Dieser Code wurde bereits verwendet." },
   { en: /^The username "(.*)" is already taken/, bhs: "Username „$1” je zauzet. Izaberite drugi.", de: "Der Benutzername „$1“ ist vergeben. Bitte wählen Sie einen anderen." },
   { en: /^This store has reached its customer limit/, bhs: "Prodavnica je dostigla limit kupaca. Kontaktirajte prodavca.", de: "Der Shop hat sein Kundenlimit erreicht. Bitte kontaktieren Sie den Shop." },
+  { en: /^Enter your email address — we send you this link/, bhs: "Upišite ispravan email — tamo vam šaljemo ovaj link.", de: "Geben Sie eine gültige E-Mail-Adresse ein — dorthin senden wir diesen Link." },
+  { en: /^This code was already used — your login details/, bhs: "Ovaj kod je već iskorišten — pristupni podaci su poslani na email koji je tada upisan. Pogledajte i spam.", de: "Dieser Code wurde bereits verwendet — die Zugangsdaten wurden an die damals angegebene E-Mail gesendet. Bitte auch im Spam nachsehen." },
   { en: /^Line not found/, bhs: "Linija nije pronađena.", de: "Zugang nicht gefunden." },
   { en: /^This code cannot be used for this line/, bhs: "Ovaj kod se ne može koristiti za ovu liniju. Kontaktirajte prodavca.", de: "Dieser Code kann für diesen Zugang nicht verwendet werden. Bitte kontaktieren Sie den Shop." },
   { en: /^Choose a username/, bhs: "Izaberite username.", de: "Bitte wählen Sie einen Benutzernamen." },

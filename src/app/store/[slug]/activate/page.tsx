@@ -5,13 +5,17 @@ import { LangSwitch } from "@/components/LangSwitch";
 import { Flash } from "@/components/ui";
 import { ACTIVATION_DEVICES, deviceLabel, findActivationDevice, pickLang, t } from "@/core/i18n/codeFlow";
 import { resolveStore } from "@/lib/storefront";
-import { redeemCodeAction } from "../actions";
+import { db } from "@/lib/db";
+import { normalizeCode } from "@/core/codes";
+import { claimCodeAction, redeemCodeAction } from "../actions";
 
 export const metadata = { title: "Activate" };
 export const dynamic = "force-dynamic";
 
 /**
  * Universal activation link: the reseller sends paying customers here (with or without ?code=). BHS by default.
+ * Step 0 (link with a code from the selling site): email first — the link is mailed at once, so a
+ *   customer who does not finish now can create the line later from the email.
  * Step 1: the customer picks the device they watch on (Hisense/VIDAA → contact support, no self-activation).
  * Step 2: new line or extension.
  */
@@ -22,6 +26,10 @@ export default async function ActivatePage({ params, searchParams }: { params: P
   const code = (sp.code ?? "").slice(0, 40);
   const extend = sp.mode === "extend";
   const device = findActivationDevice(sp.device);
+  const normalized = code ? normalizeCode(code) : null;
+  const claim = normalized ? await db.activationCode.findFirst({ where: { code: normalized, resellerId: reseller.id }, select: { claimEmail: true, status: true } }) : null;
+  const claimEmail = claim?.claimEmail ?? "";
+  const needEmail = claim?.status === "UNUSED" && (!claim.claimEmail || sp.change === "1");
   const link = (extra: Record<string, string>) => {
     const q = new URLSearchParams({ ...(code ? { code } : {}), ...(extend ? { mode: "extend" } : {}), lang, ...extra });
     return `${base}/activate?${q.toString()}`;
@@ -38,11 +46,48 @@ export default async function ActivatePage({ params, searchParams }: { params: P
     </>
   );
 
+  // ── Step 0: email (only for a valid, unused code that has no email yet) ──────
+  if (needEmail) {
+    return (
+      <div className="mx-auto max-w-md">
+        <div className="mb-6"><LangSwitch current={lang} label={t(lang, "language")} /></div>
+        <div className="mb-6 text-center">
+          <h1>{t(lang, "title")}</h1>
+          <p className="muted mt-2">{t(lang, "subtitle")}</p>
+        </div>
+        <Flash sp={sp} />
+        <form action={claimCodeAction} className="card card-pad space-y-4">
+          <input type="hidden" name="slug" value={slug} />
+          <input type="hidden" name="lang" value={lang} />
+          <input type="hidden" name="code" value={normalized!} />
+          <h2 className="text-lg">{t(lang, "saveTitle")}</h2>
+          <p className="muted text-sm">{t(lang, "saveSub")}</p>
+          <div>
+            <label className="label">{t(lang, "code")}</label>
+            <p className="font-mono text-lg tracking-wider">{normalized}</p>
+          </div>
+          <div>
+            <label className="label" htmlFor="claimEmail">{t(lang, "email")}</label>
+            <input className="input" id="claimEmail" name="email" type="email" required autoComplete="email" autoFocus defaultValue={claimEmail} />
+          </div>
+          <SubmitButton className="btn w-full text-white" style={{ background: "var(--brand)" }}>{t(lang, "saveBtn")}</SubmitButton>
+        </form>
+      </div>
+    );
+  }
+
+  const savedNote = claimEmail && claim?.status === "UNUSED" ? (
+    <p className="muted mb-6 text-center text-sm">
+      ✉ {t(lang, "savedLater", { email: claimEmail })} · <Link href={`${base}/activate?${new URLSearchParams({ code: normalized!, lang, change: "1" }).toString()}`}>{t(lang, "changeEmail")}</Link>
+    </p>
+  ) : null;
+
   // ── Step 1: device ──────────────────────────────────────────────────────────
   if (!device) {
     return (
       <div className="mx-auto max-w-3xl">
         {header}
+        {savedNote}
         <h2 className="mb-4 text-center text-lg">{t(lang, "deviceQ")}</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           {ACTIVATION_DEVICES.map((d) => (
@@ -114,6 +159,7 @@ export default async function ActivatePage({ params, searchParams }: { params: P
     <div className="mx-auto max-w-3xl">
       {header}
       {chosen}
+      {savedNote}
       <div className="grid gap-6 md:grid-cols-2">
         <form action={redeemCodeAction} className={`card card-pad space-y-4 ${!extend ? "ring-2 ring-[color:var(--brand)]" : ""}`}>
           {hidden}
@@ -128,7 +174,7 @@ export default async function ActivatePage({ params, searchParams }: { params: P
           </div>
           <div>
             <label className="label" htmlFor="email">{t(lang, "email")}</label>
-            <input className="input" id="email" name="email" type="email" required autoComplete="email" />
+            <input className="input" id="email" name="email" type="email" required autoComplete="email" defaultValue={claimEmail} />
             <p className="hint">{t(lang, "emailHint")}</p>
           </div>
           <SubmitButton className="btn w-full text-white" style={{ background: "var(--brand)" }}>{t(lang, "create")}</SubmitButton>
@@ -137,6 +183,7 @@ export default async function ActivatePage({ params, searchParams }: { params: P
         <form action={redeemCodeAction} className={`card card-pad space-y-4 ${extend ? "ring-2 ring-[color:var(--brand)]" : ""}`}>
           {hidden}
           <input type="hidden" name="mode" value="extend" />
+          {claimEmail && <input type="hidden" name="email" value={claimEmail} />}
           <h2 className="text-lg">{t(lang, "extend")}</h2>
           <p className="muted text-sm">{t(lang, "extendSub")}</p>
           {codeField}
