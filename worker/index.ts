@@ -13,7 +13,8 @@ import { audit } from "@/lib/audit";
 import { accessDetailsEmail } from "@/lib/customerEmails";
 import { refreshPublicUrl } from "@/lib/publicUrl";
 import { maxPlayerClientFactory, PrismaActivationStore, PrismaMaxPlayerStore, prismaPanelFactory } from "@/lib/activationStore";
-import { EmailJob, enqueueActivation, enqueueEmail, enqueueMaxPlayer, enqueueVodScan, maintenanceQueue, maxPlayerQueueSize, QUEUE_ACTIVATION, QUEUE_EMAIL, QUEUE_MAINTENANCE, QUEUE_MAXPLAYER, QUEUE_VOD } from "@/lib/queue";
+import { EmailJob, enqueueActivation, enqueueEmail, enqueueMaxPlayer, enqueueLineImport, enqueueVodScan, maintenanceQueue, maxPlayerQueueSize, QUEUE_ACTIVATION, QUEUE_EMAIL, QUEUE_LINEIMPORT, QUEUE_MAINTENANCE, QUEUE_MAXPLAYER, QUEUE_VOD } from "@/lib/queue";
+import { runLineImportChunk } from "@/lib/lineScanJob";
 import { scanReseller } from "@/lib/vod";
 import { dailySummary, notifyActivation, notifyReseller } from "@/lib/telegram";
 import { storeBaseUrl } from "@/lib/urls";
@@ -90,6 +91,9 @@ const maxPlayerWorker: Worker = new Worker(
 
 const emailWorker = new Worker(QUEUE_EMAIL, async (job: Job<EmailJob>) => sendTemplatedEmail(job.data), { connection, concurrency: 5 });
 
+// "Import all my lines": two resellers' scans at a time, each in chunks of ids.
+const lineImportWorker = new Worker(QUEUE_LINEIMPORT, async (job: Job<{ importId: string }>) => runLineImportChunk(job.data.importId), { connection, concurrency: 2, lockDuration: 300_000 });
+
 // VOD monitoring: one library scan at a time (each scan reads the panel slowly, 3 requests in parallel).
 const vodWorker = new Worker(QUEUE_VOD, async (job: Job<{ resellerId: string }>) => scanReseller(job.data.resellerId), { connection, concurrency: 1, lockDuration: 120_000 });
 
@@ -164,6 +168,13 @@ async function sweep() {
     await enqueueVodScan(v.resellerId);
   }
 
+  // 3e) Line imports interrupted by a restart continue by themselves.
+  const stalled = await db.lineImport.findMany({ where: { status: { in: ["RUNNING", "QUEUED"] }, updatedAt: { lt: new Date(now.getTime() - 15 * 60_000) } }, select: { id: true }, take: 20 });
+  for (const li of stalled) {
+    await db.lineImport.update({ where: { id: li.id }, data: { status: "QUEUED" } });
+    await enqueueLineImport(li.id);
+  }
+
   // 3d) Telegram daily summary for resellers, once a day after 07:00 UTC.
   if (now.getUTCHours() >= 7) {
     const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -191,7 +202,7 @@ async function sweep() {
 
 const maintenanceWorker = new Worker(QUEUE_MAINTENANCE, async () => sweep(), { connection, concurrency: 1 });
 
-for (const w of [activationWorker, maxPlayerWorker, emailWorker, maintenanceWorker, vodWorker]) {
+for (const w of [activationWorker, maxPlayerWorker, emailWorker, maintenanceWorker, vodWorker, lineImportWorker]) {
   w.on("failed", (job, err) => console.error(`[${w.name}] job ${job?.id} failed (attempt ${job?.attemptsMade}): ${err.message}`));
   w.on("error", (err) => console.error(`[${w.name}]`, err.message));
 }
@@ -208,7 +219,7 @@ main().catch((e) => {
 
 async function shutdown() {
   console.log("[worker] shutting down");
-  await Promise.allSettled([activationWorker.close(), maxPlayerWorker.close(), emailWorker.close(), maintenanceWorker.close(), vodWorker.close()]);
+  await Promise.allSettled([activationWorker.close(), maxPlayerWorker.close(), emailWorker.close(), maintenanceWorker.close(), vodWorker.close(), lineImportWorker.close()]);
   await db.$disconnect();
   process.exit(0);
 }

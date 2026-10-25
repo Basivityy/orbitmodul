@@ -10,7 +10,7 @@ import { assertCustomerCapacity, CheckoutError } from "./orders";
 export class LineImportError extends Error {}
 
 /** Hidden package that loaded lines are attached to until the customer buys a real one. */
-async function importPackage(resellerId: string, panelId: string, currency: string) {
+export async function importPackage(resellerId: string, panelId: string, currency: string) {
   const name = IMPORT_PACKAGE_NAME;
   const existing = await db.package.findFirst({ where: { resellerId, panelId, name, active: false } });
   if (existing) return existing;

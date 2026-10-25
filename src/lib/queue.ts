@@ -7,6 +7,7 @@ export const QUEUE_MAXPLAYER = "maxplayer";
 export const QUEUE_EMAIL = "email";
 export const QUEUE_MAINTENANCE = "maintenance";
 export const QUEUE_VOD = "vod";
+export const QUEUE_LINEIMPORT = "lineimport";
 
 const g = globalThis as unknown as { queues?: Record<string, Queue> };
 
@@ -81,6 +82,13 @@ export async function enqueueVodScan(resellerId: string): Promise<void> {
     { resellerId },
     { jobId: `vod-${resellerId}-${Date.now()}`, deduplication: { id: `vod-${resellerId}` }, attempts: 1, removeOnComplete: { age: 7 * 24 * 3600 }, removeOnFail: { age: 14 * 24 * 3600 } },
   );
+}
+
+/** Next chunk of an "Import all my lines" scan. */
+export async function enqueueLineImport(importId: string): Promise<void> {
+  // No deduplication: the running chunk queues the next one. Double runs are prevented by the
+  // atomic QUEUED → RUNNING claim in runLineImportChunk.
+  await queue(QUEUE_LINEIMPORT).add("chunk", { importId }, { jobId: `li-${importId}-${Date.now()}`, attempts: 1, removeOnComplete: { age: 24 * 3600 }, removeOnFail: { age: 7 * 24 * 3600 } });
 }
 
 export function maintenanceQueue(): Queue {

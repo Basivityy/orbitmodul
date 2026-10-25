@@ -508,3 +508,7 @@ Meni **Telegram alerts**: reseller napravi svog bota kod @BotFather, zalijepi to
 
 ## Odobravanje resellera i email
 Kad odobriš resellera, njegov email se smatra potvrđenim (prodavnica može prodavati odmah). Za već odobrene resellere sa nepotvrđenim emailom: Admin → Resellers → [reseller] → **Confirm email manually**.
+
+## Import all my lines (svi korisnici resellera)
+Customers → **Load existing line** → kartica **Import all my lines** → **Import all my lines**.
+Panel ne zna dati listu linija (get_lines je prazan), zato modul provjerava ID po ID (get_line) i uzima samo linije čiji je vlasnik (member_id) taj reseller. Radi u pozadini (1–3 sata za veliki panel), nastavlja sam i nakon restarta. Dugmad: **Stop**, **Continue**, **Check for new lines** (samo nove linije poslije zadnjeg importa). Ništa se ne mijenja na panelu; uvezene linije nemaju email dok kupac jednom ne plati, i ne prave MaxPlayer nalog.

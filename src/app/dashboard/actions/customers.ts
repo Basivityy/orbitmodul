@@ -1,4 +1,5 @@
 "use server";
+import { LineScanError, startLineImport, stopLineImport } from "@/lib/lineScanJob";
 
 import { generateLineUsername, isValidEmail } from "@/core/ids";
 import { placeholderEmail } from "@/core/importedCustomers";
@@ -118,5 +119,30 @@ export async function loadExistingLineAction(fd: FormData) {
     }
     await audit({ actor: actorOf(user), resellerId: reseller.id, action: "customer.line_loaded", target: username, meta: { lineId, maxPlayer: r.maxPlayer } });
     return { redirect: `/dashboard/subscriptions/${r.subscriptionId}`, message: `Line ${username} loaded${r.active ? "" : " (expired)"}${r.maxPlayer ? " — uses MaxPlayer" : ""}. The customer can now extend it on your store with their username.` };
+  });
+}
+
+/** "Import all my lines": start / check new / continue / stop the background scan. */
+export async function lineImportAction(fd: FormData) {
+  const { user, reseller } = await requireReseller();
+  return act("/dashboard/customers/existing", async () => {
+    const panelId = str(fd, "panelId", 40);
+    const op = str(fd, "op", 10);
+    if (op === "stop") {
+      await stopLineImport(reseller.id, panelId);
+      return "Import stopped. Click “Continue” to go on from where it stopped.";
+    }
+    const raw = str(fd, "ceiling", 12).trim();
+    const ceiling = raw ? Number(raw) : null;
+    if (raw && (!Number.isInteger(ceiling) || ceiling! < 1 || ceiling! > 50_000_000)) throw new UserError("Highest line ID must be a number, e.g. 80000.");
+    const mode = op === "new" ? "new" : op === "continue" ? "continue" : "full";
+    try {
+      await startLineImport(reseller.id, panelId, { mode, ceiling });
+    } catch (e) {
+      if (e instanceof LineScanError) throw new UserError(e.message);
+      throw e;
+    }
+    await audit({ actor: actorOf(user), resellerId: reseller.id, action: "customer.line_import_started", meta: { mode, ceiling } });
+    return mode === "new" ? "Looking for new lines on the panel…" : "Import started. It runs in the background — you can leave this page.";
   });
 }

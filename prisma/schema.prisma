@@ -227,6 +227,7 @@ model Reseller {
   vodMonitor             VodMonitor?
   vodSeries              VodSeries[]
   telegram               ResellerTelegram?
+  lineImports            LineImport[]
 
   @@index([approvalStatus])
 }
@@ -316,6 +317,7 @@ model PanelIntegration {
   bouquets      Bouquet[]
   packages      Package[]
   subscriptions Subscription[]
+  lineImports   LineImport[]
 
   @@index([resellerId])
 }
@@ -858,4 +860,32 @@ model ResellerTelegram {
   updatedAt      DateTime  @updatedAt
 
   reseller Reseller @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+}
+
+// "Import all my lines": walks the panel's line ids with get_line and keeps the reseller's own lines.
+model LineImport {
+  id         String    @id @default(cuid())
+  resellerId String
+  panelId    String
+  // IDLE | QUEUED | RUNNING | DONE | STOPPED | ERROR
+  status     String    @default("IDLE")
+  // panel account (member_id) whose lines are imported
+  memberId   String?
+  nextId     Int       @default(1)
+  ceiling    Int       @default(0)
+  lastHitId  Int       @default(0)
+  scanned    Int       @default(0)
+  found      Int       @default(0)
+  imported   Int       @default(0)
+  updated    Int       @default(0)
+  lastError  String?
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  reseller Reseller         @relation(fields: [resellerId], references: [id], onDelete: Cascade)
+  panel    PanelIntegration @relation(fields: [panelId], references: [id], onDelete: Cascade)
+
+  @@unique([resellerId, panelId])
 }
