@@ -527,6 +527,9 @@ model Subscription {
   maxPlayerStatus        MaxPlayerState     @default(NONE)
   maxPlayerError         String?
   reminderSentAt         DateTime?
+  /// Connections and notes as on the panel (read on import / load / sync). Null = use the package.
+  maxConnections         Int?
+  panelNotes             String?
   isTest                 Boolean            @default(false)
   // Code the customer signs in to the app with (the activation code that created the line, or one issued by the reseller)
   appCode                String?            @unique

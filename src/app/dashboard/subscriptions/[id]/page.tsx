@@ -47,6 +47,8 @@ export default async function SubscriptionPage({ params, searchParams }: { param
             <Row k="Panel" v={s.panel.name} />
             <Row k="Started" v={<DateTime value={s.startsAt} />} />
             <Row k="Expires" v={<DateTime value={s.expiresAt} />} />
+            <Row k="Connections" v={String(s.maxConnections ?? s.package.maxConnections)} />
+            {s.panelNotes && <Row k="Notes (panel)" v={<span className="whitespace-pre-line">{s.panelNotes}</span>} />}
             <Row k="Contracted price" v={<><Money amount={s.priceCents} currency={s.currency} /> / {s.durationDays} days</>} />
             <Row k="Renewal" v={s.autoRenew ? `Automatic (${s.provider?.toLowerCase()})` : "Manual"} />
             <Row k="MaxPlayer" v={<span>{s.maxPlayerUserId?.startsWith("TEST-") ? <span className="badge-amber">simulated (test mode) — no real account</span> : <StatusBadge status={s.maxPlayerStatus} label={s.maxPlayerStatus === "NONE" ? "no account" : undefined} />} {s.maxPlayerUserId && !s.maxPlayerUserId.startsWith("TEST-") && <span className="muted">#{s.maxPlayerUserId}</span>}{s.maxPlayerError && <span className="block text-xs text-rose-600">{s.maxPlayerError}</span>}</span>} />

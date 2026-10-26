@@ -84,6 +84,8 @@ export async function importExistingLine(
       xuiLineId: line.id,
       lineUsername: line.username,
       linePasswordEnc: encrypt(line.password ?? input.password),
+      maxConnections: line.maxConnections,
+      panelNotes: line.notes ?? null,
       ...(mpId ? { maxPlayerStatus: "ACTIVE" as const, maxPlayerUserId: mpId } : {}),
     },
   });

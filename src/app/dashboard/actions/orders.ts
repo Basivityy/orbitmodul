@@ -107,6 +107,8 @@ export async function syncLineAction(fd: FormData) {
     const adapter = createPanelAdapter(s.panel.type, { apiUrl: s.panel.apiUrl, apiKey: decrypt(s.panel.apiKeyEnc) }, { testMode: false, log: apiLogger(reseller.id, "XUI") });
     const line = await adapter.getLine(s.xuiLineId);
     if (!line) throw new UserError("The line was not found on the panel (deleted?).");
+    // Keep billing in step with the panel: expiry, connections, notes.
+    await db.subscription.update({ where: { id: s.id }, data: { ...(line.expiresAt ? { expiresAt: line.expiresAt } : {}), ...(line.maxConnections ? { maxConnections: line.maxConnections } : {}), panelNotes: line.notes ?? null } });
     return `Panel status: ${line.enabled === false ? "disabled" : "enabled"}, expires ${line.expiresAt ? line.expiresAt.toISOString().slice(0, 16).replace("T", " ") + " UTC" : "never/unknown"}.`;
   });
 }

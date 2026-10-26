@@ -35,6 +35,8 @@ export interface LineInfo {
   maxConnections: number | null;
   /** XUI user (reseller) that owns the line. */
   memberId?: string | null;
+  /** Notes on the line (reseller notes, else admin notes). */
+  notes?: string | null;
   raw?: unknown;
 }
 

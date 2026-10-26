@@ -72,6 +72,8 @@ async function upsertPanelLine(resellerId: string, panel: Panel, line: LineInfo,
       data: {
         expiresAt: line.expiresAt,
         lineUsername: line.username || sub.lineUsername,
+        maxConnections: line.maxConnections ?? sub.maxConnections,
+        panelNotes: line.notes ?? null,
         ...(line.password ? { linePasswordEnc: encrypt(line.password) } : {}),
         ...(sub.status === "ACTIVE" || sub.status === "EXPIRED" ? { status: active ? "ACTIVE" : "EXPIRED" } : {}),
       },
@@ -98,6 +100,8 @@ async function upsertPanelLine(resellerId: string, panel: Panel, line: LineInfo,
       xuiLineId: line.id,
       lineUsername: line.username,
       linePasswordEnc: encrypt(line.password),
+      maxConnections: line.maxConnections,
+      panelNotes: line.notes ?? null,
     },
   });
   return "imported";
