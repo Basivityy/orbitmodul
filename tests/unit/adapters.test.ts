@@ -459,6 +459,7 @@ test("XUI adapter: a line switched off by the admin (admin_enabled=0) is not ena
     assert.equal((await a.getLine("2"))?.enabled, true);
     assert.equal((await a.getLine("3"))?.enabled, false);
     assert.equal((await a.getLine("4"))?.enabled, null);
+    assert.equal((await a.getLine("2"))?.kind, "line");
   } finally {
     await srv.close();
   }

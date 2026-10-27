@@ -168,6 +168,7 @@ export class XuiOneAdapter implements PanelAdapter {
       maxConnections: raw.max_connections !== undefined ? Number(raw.max_connections) : null,
       memberId: raw.member_id !== undefined && raw.member_id !== null ? String(raw.member_id) : null,
       isTrial: raw.is_trial !== undefined ? Number(raw.is_trial) === 1 : undefined,
+      kind: Number(raw.is_mag) === 1 || Number(raw.is_stalker) === 1 ? "mag" : Number(raw.is_e2) === 1 ? "enigma" : Number(raw.is_restreamer) === 1 ? "restreamer" : raw.username !== undefined ? "line" : undefined,
       notes: [raw.reseller_notes, raw.notes, raw.admin_notes].map((n) => (typeof n === "string" ? n.trim() : "")).find((n) => n) || null,
     };
   }

@@ -17,6 +17,8 @@ export interface LineSyncState {
   total: number;
   updated: number;
   missing: number;
+  /** What the panel said about the lines it returned (for comparing with the panel's lists). */
+  breakdown?: Record<string, number>;
   error?: string;
 }
 
@@ -38,11 +40,12 @@ export async function markSyncQueued(resellerId: string) {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function syncResellerLines(resellerId: string): Promise<LineSyncState> {
-  const state: LineSyncState = { status: "RUNNING", at: new Date().toISOString(), checked: 0, total: 0, updated: 0, missing: 0 };
+  const state: LineSyncState = { status: "RUNNING", at: new Date().toISOString(), checked: 0, total: 0, updated: 0, missing: 0, breakdown: {} };
+  const tally = (k: string) => (state.breakdown![k] = (state.breakdown![k] ?? 0) + 1);
   const panels = await db.panelIntegration.findMany({ where: { resellerId } });
   const subs = await db.subscription.findMany({
     where: { resellerId, isTest: false, xuiLineId: { not: null }, status: { in: ["ACTIVE", "EXPIRED"] } },
-    select: { id: true, panelId: true, xuiLineId: true, status: true, expiresAt: true, lineUsername: true, linePasswordEnc: true, maxConnections: true, panelNotes: true, panelTrial: true },
+    select: { id: true, panelId: true, xuiLineId: true, status: true, expiresAt: true, lineUsername: true, linePasswordEnc: true, maxConnections: true, panelNotes: true, panelTrial: true, panelKind: true },
   });
   state.total = subs.length;
   const missingSubs: Array<{ id: string; panelNotes: string | null }> = [];
@@ -87,6 +90,10 @@ export async function syncResellerLines(resellerId: string): Promise<LineSyncSta
               state.missing++;
               missingSubs.push(s);
             } else {
+              tally(line.kind ?? "line");
+              if (line.isTrial) tally("trial");
+              if (line.enabled === false) tally("disabled");
+              if (!line.expiresAt) tally("no expiry");
               const patch = panelChanges(s, line);
               const pass = line.password && (!s.linePasswordEnc || decrypt(s.linePasswordEnc) !== line.password) ? { linePasswordEnc: encrypt(line.password) } : {};
               if (patch || Object.keys(pass).length) {

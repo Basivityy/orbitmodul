@@ -39,6 +39,8 @@ export interface LineInfo {
   notes?: string | null;
   /** Test (trial) line on the panel. */
   isTrial?: boolean;
+  /** line | mag | enigma | restreamer */
+  kind?: string;
   raw?: unknown;
 }
 

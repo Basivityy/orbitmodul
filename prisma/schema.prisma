@@ -532,6 +532,8 @@ model Subscription {
   panelNotes             String?
   /// Test (trial) line on the panel — counted apart from paid active lines, like the panel does.
   panelTrial             Boolean            @default(false)
+  /// What it is on the panel: line | mag | enigma | restreamer (MAG/Enigma devices are not in the panel's line list).
+  panelKind              String             @default("line")
   isTest                 Boolean            @default(false)
   // Code the customer signs in to the app with (the activation code that created the line, or one issued by the reseller)
   appCode                String?            @unique

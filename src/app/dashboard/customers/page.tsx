@@ -20,18 +20,21 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
   const now = new Date();
   // Active = status ACTIVE and not past the expiry date; everything else is inactive.
   const activeWhere: Prisma.SubscriptionWhereInput = { status: "ACTIVE", OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] };
-  const show = sp.show === "active" || sp.show === "inactive" || sp.show === "trial" || sp.show === "unlimited" ? sp.show : "all";
+  const show = ["active", "inactive", "trial", "unlimited", "devices"].includes(sp.show ?? "") ? sp.show! : "all";
   // Like the panel: test (trial) lines are counted apart, deleted ones (CANCELED) are not listed by default.
   // Active with an expiry date (like the panel's "Active"); lines without expiry are listed apart.
   const paidActive: Prisma.SubscriptionWhereInput = { status: "ACTIVE", panelTrial: false, expiresAt: { gt: now } };
   const unlimited: Prisma.SubscriptionWhereInput = { status: "ACTIVE", panelTrial: false, expiresAt: null };
   const trialActive: Prisma.SubscriptionWhereInput = { AND: [activeWhere, { panelTrial: true }] };
-  const base: Prisma.SubscriptionWhereInput = { resellerId: reseller.id, isTest: false, status: { not: "CANCELED" } };
+  // Like the panel's line list: MAG / Enigma devices and restreamers are counted apart.
+  const all: Prisma.SubscriptionWhereInput = { resellerId: reseller.id, isTest: false, status: { not: "CANCELED" } };
+  const base: Prisma.SubscriptionWhereInput = show === "devices" ? { ...all, panelKind: { not: "line" } } : { ...all, panelKind: "line" };
   const search: Prisma.SubscriptionWhereInput = q
     ? { OR: [{ lineUsername: { contains: q, mode: "insensitive" } }, { customer: { email: { contains: q, mode: "insensitive" } } }, { customer: { name: { contains: q, mode: "insensitive" } } }] }
     : {};
-  const filter: Prisma.SubscriptionWhereInput = show === "active" ? paidActive : show === "trial" ? trialActive : show === "unlimited" ? unlimited : show === "inactive" ? { NOT: activeWhere } : {};
-  const [rows, totalLines, activeLines, trialLines, unlimitedLines, sync] = await Promise.all([
+  const filter: Prisma.SubscriptionWhereInput = show === "devices" ? {} : show === "active" ? paidActive : show === "trial" ? trialActive : show === "unlimited" ? unlimited : show === "inactive" ? { NOT: activeWhere } : {};
+  const lineBase: Prisma.SubscriptionWhereInput = { ...all, panelKind: "line" };
+  const [rows, totalLines, activeLines, trialLines, unlimitedLines, deviceLines, sync] = await Promise.all([
     db.subscription.findMany({
       where: { AND: [base, search, filter] },
       orderBy: [{ expiresAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
@@ -39,10 +42,11 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
       take: PER + 1,
       include: { customer: { select: { id: true, email: true, name: true } }, package: { select: { name: true, maxConnections: true } } },
     }),
-    db.subscription.count({ where: base }),
-    db.subscription.count({ where: { AND: [base, paidActive] } }),
-    db.subscription.count({ where: { AND: [base, trialActive] } }),
-    db.subscription.count({ where: { AND: [base, unlimited] } }),
+    db.subscription.count({ where: lineBase }),
+    db.subscription.count({ where: { AND: [lineBase, paidActive] } }),
+    db.subscription.count({ where: { AND: [lineBase, trialActive] } }),
+    db.subscription.count({ where: { AND: [lineBase, unlimited] } }),
+    db.subscription.count({ where: { ...all, panelKind: { not: "line" } } }),
     getLineSync(reseller.id),
   ]);
   const syncing = !!sync && (sync.status === "QUEUED" || sync.status === "RUNNING") && Date.now() - new Date(sync.at).getTime() < 2 * 3600_000;
@@ -64,13 +68,18 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
         {tab("trial", "Trial (test)", trialLines, "text-amber-600 dark:text-amber-400")}
         {tab("inactive", "Inactive", totalLines - activeLines - trialLines - unlimitedLines, "text-rose-600 dark:text-rose-400")}
       </div>
+      {deviceLines > 0 && (
+        <p className="mb-4 text-sm">
+          + <Link href="/dashboard/customers?show=devices">{deviceLines} MAG / Enigma device{deviceLines === 1 ? "" : "s"} and restreamers</Link> — on the panel they are not in the line list, so they are counted apart here too.
+        </p>
+      )}
       <AutoRefresh active={syncing} intervalMs={5000} />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 px-4 py-3 text-sm dark:border-slate-800">
         <span>
           {syncing ? (
             <b>Refreshing from the panel… {sync!.checked}/{sync!.total || "?"}</b>
           ) : sync ? (
-            <>Last refresh from the panel: <DateTime value={new Date(sync.at)} /> · {sync.updated} changed{sync.missing ? ` · ${sync.missing} not found on the panel` : ""}{sync.status === "ERROR" ? <span className="text-rose-600"> · error: {sync.error}</span> : null}</>
+            <>Last refresh from the panel: <DateTime value={new Date(sync.at)} /> · {sync.updated} changed{sync.missing ? ` · ${sync.missing} not found on the panel` : ""}{sync.breakdown && Object.keys(sync.breakdown).length ? ` · panel says: ${Object.entries(sync.breakdown).map(([k, v]) => `${v} ${k}`).join(", ")}` : ""}{sync.status === "ERROR" ? <span className="text-rose-600"> · error: {sync.error}</span> : null}</>
           ) : (
             <>Lines renewed or changed directly on the panel are taken over once a day.</>
           )}
@@ -117,6 +126,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
                       <td>
                         <span className={on ? "badge-green" : "badge-red"}>{on ? "● Active" : "● Inactive"}</span>
                         {s.panelTrial && <span className="badge-amber ml-1">trial</span>}
+                        {s.panelKind !== "line" && <span className="badge-gray ml-1">{s.panelKind === "mag" ? "MAG" : s.panelKind === "enigma" ? "Enigma" : s.panelKind}</span>}
                       </td>
                       <td className="whitespace-nowrap">
                         {s.expiresAt ? <DateTime value={s.expiresAt} dateOnly /> : <span className="text-sky-600 dark:text-sky-400">no expiry</span>}

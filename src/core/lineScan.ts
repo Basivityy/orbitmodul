@@ -122,6 +122,7 @@ export interface BillingLine {
   maxConnections: number | null;
   panelNotes: string | null;
   panelTrial?: boolean;
+  panelKind?: string;
 }
 
 /**
@@ -139,5 +140,6 @@ export function panelChanges(sub: BillingLine, line: LineInfo, now = new Date())
   if (line.maxConnections && line.maxConnections !== sub.maxConnections) patch.maxConnections = line.maxConnections;
   if ((line.notes ?? null) !== (sub.panelNotes ?? null)) patch.panelNotes = line.notes ?? null;
   if (line.isTrial !== undefined && line.isTrial !== !!sub.panelTrial) patch.panelTrial = line.isTrial;
+  if (line.kind && line.kind !== (sub.panelKind ?? "line")) patch.panelKind = line.kind;
   return Object.keys(patch).length ? patch : null;
 }

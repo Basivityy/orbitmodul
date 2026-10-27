@@ -85,3 +85,11 @@ test("line refresh: trial flag from the panel is taken over", async () => {
   const l = { ...line(9, "491"), username: "u1", expiresAt: sub.expiresAt, enabled: true, maxConnections: 1, notes: null, isTrial: true };
   assert.deepEqual(panelChanges(sub, l, now), { panelTrial: true });
 });
+
+test("line refresh: MAG / Enigma devices are recognised", async () => {
+  const { panelChanges } = await import("../../src/core/lineScan.js");
+  const now = new Date("2026-10-27T00:00:00Z");
+  const sub = { status: "ACTIVE", expiresAt: new Date("2026-12-01T00:00:00Z"), lineUsername: "m1", maxConnections: 1, panelNotes: null, panelKind: "line" };
+  const l = { ...line(9, "491"), username: "m1", expiresAt: sub.expiresAt, enabled: true, maxConnections: 1, notes: null, kind: "mag" };
+  assert.deepEqual(panelChanges(sub, l, now), { panelKind: "mag" });
+});

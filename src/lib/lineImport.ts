@@ -87,6 +87,7 @@ export async function importExistingLine(
       maxConnections: line.maxConnections,
       panelNotes: line.notes ?? null,
       panelTrial: !!line.isTrial,
+      panelKind: line.kind ?? "line",
       ...(mpId ? { maxPlayerStatus: "ACTIVE" as const, maxPlayerUserId: mpId } : {}),
     },
   });
