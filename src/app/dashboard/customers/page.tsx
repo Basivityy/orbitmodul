@@ -6,73 +6,96 @@ import { Card, DateTime, Empty, PageHeader, Pagination } from "@/components/ui";
 import { requireReseller } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isPlaceholderEmail } from "@/core/importedCustomers";
+import { baseWhere, extraWhere, filterQuery, kindWhere, lineOrderBy, lineWhere, parseLineFilter, statusWhere, SORTS, type Kind, type LineStatus } from "@/core/lineFilters";
 import { deleteCustomerAction, refreshLinesAction } from "../actions/customers";
 
 export const metadata = { title: "Customers" };
 const PER = 50;
 
-/** One row per line: username, customer, status (green / red), expiry, connections, panel notes. */
+const KIND_LABEL: Record<Kind, string> = { line: "Lines", mag: "MAG", enigma: "Enigma", restreamer: "Restreamers", any: "Everything" };
+const STATUS_LABEL: Record<LineStatus, { label: string; cls: string }> = {
+  all: { label: "All", cls: "text-slate-950 dark:text-white" },
+  active: { label: "Active", cls: "text-emerald-600 dark:text-emerald-400" },
+  unlimited: { label: "No expiry", cls: "text-sky-600 dark:text-sky-400" },
+  trial: { label: "Trial (test)", cls: "text-amber-600 dark:text-amber-400" },
+  expiring: { label: "Expiring in 7 days", cls: "text-amber-600 dark:text-amber-400" },
+  inactive: { label: "Inactive", cls: "text-rose-600 dark:text-rose-400" },
+};
+const SORT_LABEL: Record<(typeof SORTS)[number], string> = { expiry_desc: "Expiry: latest first", expiry_asc: "Expiry: soonest first", newest: "Newest in billing", username: "Username A–Z" };
+
+/** One row per line, filterable by type (line / MAG / Enigma / restreamer), status, package, connections. */
 export default async function CustomersPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const sp = await searchParams;
   const { reseller } = await requireReseller();
-  const q = (sp.q ?? "").trim().slice(0, 100);
+  const f = parseLineFilter(sp);
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
   const now = new Date();
-  // Active = status ACTIVE and not past the expiry date; everything else is inactive.
-  const activeWhere: Prisma.SubscriptionWhereInput = { status: "ACTIVE", OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] };
-  const show = ["active", "inactive", "trial", "unlimited", "devices"].includes(sp.show ?? "") ? sp.show! : "all";
-  // Like the panel: test (trial) lines are counted apart, deleted ones (CANCELED) are not listed by default.
-  // Active with an expiry date (like the panel's "Active"); lines without expiry are listed apart.
-  const paidActive: Prisma.SubscriptionWhereInput = { status: "ACTIVE", panelTrial: false, expiresAt: { gt: now } };
-  const unlimited: Prisma.SubscriptionWhereInput = { status: "ACTIVE", panelTrial: false, expiresAt: null };
-  const trialActive: Prisma.SubscriptionWhereInput = { AND: [activeWhere, { panelTrial: true }] };
-  // Like the panel's line list: MAG / Enigma devices and restreamers are counted apart.
-  const all: Prisma.SubscriptionWhereInput = { resellerId: reseller.id, isTest: false, status: { not: "CANCELED" } };
-  const base: Prisma.SubscriptionWhereInput = show === "devices" ? { ...all, panelKind: { not: "line" } } : { ...all, panelKind: "line" };
-  const search: Prisma.SubscriptionWhereInput = q
-    ? { OR: [{ lineUsername: { contains: q, mode: "insensitive" } }, { customer: { email: { contains: q, mode: "insensitive" } } }, { customer: { name: { contains: q, mode: "insensitive" } } }] }
-    : {};
-  const filter: Prisma.SubscriptionWhereInput = show === "devices" ? {} : show === "active" ? paidActive : show === "trial" ? trialActive : show === "unlimited" ? unlimited : show === "inactive" ? { NOT: activeWhere } : {};
-  const lineBase: Prisma.SubscriptionWhereInput = { ...all, panelKind: "line" };
-  const [rows, totalLines, activeLines, trialLines, unlimitedLines, deviceLines, sync] = await Promise.all([
+  const W = (w: unknown) => w as Prisma.SubscriptionWhereInput;
+  const base = baseWhere(reseller.id);
+  const extra = extraWhere(f);
+  const statuses = Object.keys(STATUS_LABEL) as LineStatus[];
+  const [rows, kindCounts, statusCounts, packages, conns, sync] = await Promise.all([
     db.subscription.findMany({
-      where: { AND: [base, search, filter] },
-      orderBy: [{ expiresAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+      where: W(lineWhere(reseller.id, f, now)),
+      orderBy: lineOrderBy(f.sort) as Prisma.SubscriptionOrderByWithRelationInput[],
       skip: (page - 1) * PER,
       take: PER + 1,
       include: { customer: { select: { id: true, email: true, name: true } }, package: { select: { name: true, maxConnections: true } } },
     }),
-    db.subscription.count({ where: lineBase }),
-    db.subscription.count({ where: { AND: [lineBase, paidActive] } }),
-    db.subscription.count({ where: { AND: [lineBase, trialActive] } }),
-    db.subscription.count({ where: { AND: [lineBase, unlimited] } }),
-    db.subscription.count({ where: { ...all, panelKind: { not: "line" } } }),
+    db.subscription.groupBy({ by: ["panelKind"], where: W(base), _count: { _all: true } }),
+    Promise.all(statuses.map((st) => db.subscription.count({ where: W({ AND: [base, kindWhere(f.kind), statusWhere(st, now), ...extra] }) }))),
+    db.package.findMany({ where: { resellerId: reseller.id, subscriptions: { some: { isTest: false } } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    db.subscription.groupBy({ by: ["maxConnections"], where: W(base), _count: { _all: true } }),
     getLineSync(reseller.id),
   ]);
+  const kindN = (k: Kind) => (k === "any" ? kindCounts.reduce((a, r) => a + r._count._all, 0) : kindCounts.find((r) => r.panelKind === k)?._count._all ?? 0);
+  const connOptions = [...new Set(conns.map((c) => c.maxConnections).filter((c): c is number => !!c))].sort((a, b) => a - b);
   const syncing = !!sync && (sync.status === "QUEUED" || sync.status === "RUNNING") && Date.now() - new Date(sync.at).getTime() < 2 * 3600_000;
   const isActive = (s: { status: string; expiresAt: Date | null }) => s.status === "ACTIVE" && (!s.expiresAt || s.expiresAt > now);
   const days = (d: Date) => Math.ceil((d.getTime() - now.getTime()) / 86_400_000);
-  const tab = (key: string, label: string, n: number, cls: string) => (
-    <Link href={`/dashboard/customers?show=${key}${q ? `&q=${encodeURIComponent(q)}` : ""}`} className={`card flex-1 p-4 no-underline hover:no-underline ${show === key ? "ring-2 ring-brand-500" : ""}`}>
-      <div className="muted text-xs font-semibold uppercase tracking-wide">{label}</div>
-      <div className={`mt-1 text-2xl font-black tabular-nums ${cls}`}>{n.toLocaleString()}</div>
-    </Link>
-  );
+  const here = (change: Parameters<typeof filterQuery>[1]) => `/dashboard/customers${filterQuery(f, change)}`;
   return (
     <>
-      <PageHeader title="Customers" description="Your lines and the customers they belong to." actions={<><Link className="btn-secondary" href="/dashboard/customers/existing">Load existing line</Link><Link className="btn-primary" href="/dashboard/customers/new">+ Add customer</Link></>} />
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-        {tab("all", "All lines", totalLines, "text-slate-950 dark:text-white")}
-        {tab("active", "Active", activeLines, "text-emerald-600 dark:text-emerald-400")}
-        {tab("unlimited", "No expiry", unlimitedLines, "text-sky-600 dark:text-sky-400")}
-        {tab("trial", "Trial (test)", trialLines, "text-amber-600 dark:text-amber-400")}
-        {tab("inactive", "Inactive", totalLines - activeLines - trialLines - unlimitedLines, "text-rose-600 dark:text-rose-400")}
+      <PageHeader title="Customers" description="Your lines and devices from the panel, with the customers they belong to." actions={<><a className="btn-secondary" href={`/dashboard/customers/export${filterQuery(f)}`}>⇩ CSV</a><Link className="btn-secondary" href="/dashboard/customers/existing">Load existing line</Link><Link className="btn-primary" href="/dashboard/customers/new">+ Add customer</Link></>} />
+
+      {/* Type: like the panel's separate lists */}
+      <div className="mb-3 flex flex-wrap gap-2">
+        {(["line", "mag", "enigma", "restreamer", "any"] as Kind[]).filter((k) => k === "line" || k === "any" || kindN(k) > 0).map((k) => (
+          <Link key={k} href={here({ kind: k })} className={f.kind === k ? "btn-primary btn-sm" : "btn-secondary btn-sm"}>
+            {KIND_LABEL[k]} <span className="ml-1 opacity-70">{kindN(k).toLocaleString()}</span>
+          </Link>
+        ))}
       </div>
-      {deviceLines > 0 && (
-        <p className="mb-4 text-sm">
-          + <Link href="/dashboard/customers?show=devices">{deviceLines} MAG / Enigma device{deviceLines === 1 ? "" : "s"} and restreamers</Link> — on the panel they are not in the line list, so they are counted apart here too.
-        </p>
-      )}
+
+      {/* Status counts (within the type, search, package and connections chosen) */}
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {statuses.map((st, i) => (
+          <Link key={st} href={here({ status: st })} className={`card p-3 no-underline hover:no-underline ${f.status === st ? "ring-2 ring-brand-500" : ""}`}>
+            <div className="muted text-xs font-semibold uppercase tracking-wide">{STATUS_LABEL[st].label}</div>
+            <div className={`mt-1 text-2xl font-black tabular-nums ${STATUS_LABEL[st].cls}`}>{statusCounts[i].toLocaleString()}</div>
+          </Link>
+        ))}
+      </div>
+
+      <form className="mb-4 flex flex-wrap items-end gap-2" action="/dashboard/customers">
+        {f.kind !== "line" && <input type="hidden" name="kind" value={f.kind} />}
+        {f.status !== "all" && <input type="hidden" name="status" value={f.status} />}
+        <input className="input max-w-xs flex-1" name="q" defaultValue={f.q} placeholder="Username, email, name or note" />
+        <select className="input w-auto" name="pkg" defaultValue={f.pkg} aria-label="Package">
+          <option value="">All packages</option>
+          {packages.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <select className="input w-auto" name="conn" defaultValue={f.conn ? String(f.conn) : ""} aria-label="Connections">
+          <option value="">Any connections</option>
+          {connOptions.map((c) => <option key={c} value={c}>{c} connection{c === 1 ? "" : "s"}</option>)}
+        </select>
+        <select className="input w-auto" name="sort" defaultValue={f.sort} aria-label="Sort">
+          {SORTS.map((o) => <option key={o} value={o}>{SORT_LABEL[o]}</option>)}
+        </select>
+        <button className="btn-secondary" type="submit">Apply</button>
+        {(f.q || f.pkg || f.conn || f.sort !== "expiry_desc") && <Link className="btn-ghost btn-sm" href={here({ q: "", pkg: "", conn: null, sort: "expiry_desc" })}>Clear</Link>}
+      </form>
+
       <AutoRefresh active={syncing} intervalMs={5000} />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 px-4 py-3 text-sm dark:border-slate-800">
         <span>
@@ -86,14 +109,9 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
         </span>
         <form action={refreshLinesAction}><SubmitButton className="btn-secondary btn-sm">{syncing ? "Refreshing…" : "Refresh from panel"}</SubmitButton></form>
       </div>
-      <form className="mb-4 flex gap-2">
-        {show !== "all" && <input type="hidden" name="show" value={show} />}
-        <input className="input max-w-sm" name="q" defaultValue={q} placeholder="Search username, email or name" />
-        <button className="btn-secondary">Search</button>
-      </form>
       <Card pad={false}>
         {rows.length === 0 ? (
-          <Empty title="No lines found" />
+          <Empty title="Nothing matches these filters" />
         ) : (
           <div className="table-wrap">
             <table className="table">
@@ -148,7 +166,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
             </table>
           </div>
         )}
-        <Pagination page={page} hasMore={rows.length > PER} baseHref={`/dashboard/customers?show=${show}&q=${encodeURIComponent(q)}`} />
+        <Pagination page={page} hasMore={rows.length > PER} baseHref={here({})} />
       </Card>
     </>
   );
