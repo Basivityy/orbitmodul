@@ -86,6 +86,7 @@ export async function importExistingLine(
       linePasswordEnc: encrypt(line.password ?? input.password),
       maxConnections: line.maxConnections,
       panelNotes: line.notes ?? null,
+      panelTrial: !!line.isTrial,
       ...(mpId ? { maxPlayerStatus: "ACTIVE" as const, maxPlayerUserId: mpId } : {}),
     },
   });

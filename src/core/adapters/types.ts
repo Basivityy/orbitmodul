@@ -37,6 +37,8 @@ export interface LineInfo {
   memberId?: string | null;
   /** Notes on the line (reseller notes, else admin notes). */
   notes?: string | null;
+  /** Test (trial) line on the panel. */
+  isTrial?: boolean;
   raw?: unknown;
 }
 

@@ -530,6 +530,8 @@ model Subscription {
   /// Connections and notes as on the panel (read on import / load / sync). Null = use the package.
   maxConnections         Int?
   panelNotes             String?
+  /// Test (trial) line on the panel — counted apart from paid active lines, like the panel does.
+  panelTrial             Boolean            @default(false)
   isTest                 Boolean            @default(false)
   // Code the customer signs in to the app with (the activation code that created the line, or one issued by the reseller)
   appCode                String?            @unique

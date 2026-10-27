@@ -20,13 +20,16 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
   const now = new Date();
   // Active = status ACTIVE and not past the expiry date; everything else is inactive.
   const activeWhere: Prisma.SubscriptionWhereInput = { status: "ACTIVE", OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] };
-  const show = sp.show === "active" || sp.show === "inactive" ? sp.show : "all";
-  const base: Prisma.SubscriptionWhereInput = { resellerId: reseller.id, isTest: false };
+  const show = sp.show === "active" || sp.show === "inactive" || sp.show === "trial" ? sp.show : "all";
+  // Like the panel: test (trial) lines are counted apart, deleted ones (CANCELED) are not listed by default.
+  const paidActive: Prisma.SubscriptionWhereInput = { AND: [activeWhere, { panelTrial: false }] };
+  const trialActive: Prisma.SubscriptionWhereInput = { AND: [activeWhere, { panelTrial: true }] };
+  const base: Prisma.SubscriptionWhereInput = { resellerId: reseller.id, isTest: false, status: { not: "CANCELED" } };
   const search: Prisma.SubscriptionWhereInput = q
     ? { OR: [{ lineUsername: { contains: q, mode: "insensitive" } }, { customer: { email: { contains: q, mode: "insensitive" } } }, { customer: { name: { contains: q, mode: "insensitive" } } }] }
     : {};
-  const filter: Prisma.SubscriptionWhereInput = show === "active" ? activeWhere : show === "inactive" ? { NOT: activeWhere } : {};
-  const [rows, totalLines, activeLines, sync] = await Promise.all([
+  const filter: Prisma.SubscriptionWhereInput = show === "active" ? paidActive : show === "trial" ? trialActive : show === "inactive" ? { NOT: activeWhere } : {};
+  const [rows, totalLines, activeLines, trialLines, sync] = await Promise.all([
     db.subscription.findMany({
       where: { AND: [base, search, filter] },
       orderBy: [{ expiresAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
@@ -35,7 +38,8 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
       include: { customer: { select: { id: true, email: true, name: true } }, package: { select: { name: true, maxConnections: true } } },
     }),
     db.subscription.count({ where: base }),
-    db.subscription.count({ where: { AND: [base, activeWhere] } }),
+    db.subscription.count({ where: { AND: [base, paidActive] } }),
+    db.subscription.count({ where: { AND: [base, trialActive] } }),
     getLineSync(reseller.id),
   ]);
   const syncing = !!sync && (sync.status === "QUEUED" || sync.status === "RUNNING") && Date.now() - new Date(sync.at).getTime() < 2 * 3600_000;
@@ -50,10 +54,11 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
   return (
     <>
       <PageHeader title="Customers" description="Your lines and the customers they belong to." actions={<><Link className="btn-secondary" href="/dashboard/customers/existing">Load existing line</Link><Link className="btn-primary" href="/dashboard/customers/new">+ Add customer</Link></>} />
-      <div className="mb-4 grid grid-cols-3 gap-3">
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {tab("all", "All lines", totalLines, "text-slate-950 dark:text-white")}
         {tab("active", "Active", activeLines, "text-emerald-600 dark:text-emerald-400")}
-        {tab("inactive", "Inactive", totalLines - activeLines, "text-rose-600 dark:text-rose-400")}
+        {tab("trial", "Trial (test)", trialLines, "text-amber-600 dark:text-amber-400")}
+        {tab("inactive", "Inactive", totalLines - activeLines - trialLines, "text-rose-600 dark:text-rose-400")}
       </div>
       <AutoRefresh active={syncing} intervalMs={5000} />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 px-4 py-3 text-sm dark:border-slate-800">
@@ -105,7 +110,10 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
                         <Link href={`/dashboard/customers/${s.customer.id}`} className={noEmail ? "muted text-sm" : "text-sm"}>{noEmail ? "no email" : s.customer.email}</Link>
                         {s.customer.name && <div className="muted text-xs">{s.customer.name}</div>}
                       </td>
-                      <td><span className={on ? "badge-green" : "badge-red"}>{on ? "● Active" : "● Inactive"}</span></td>
+                      <td>
+                        <span className={on ? "badge-green" : "badge-red"}>{on ? "● Active" : "● Inactive"}</span>
+                        {s.panelTrial && <span className="badge-amber ml-1">trial</span>}
+                      </td>
                       <td className="whitespace-nowrap">
                         <DateTime value={s.expiresAt} dateOnly />
                         {d !== null && <div className={`text-xs ${on ? (d <= 3 ? "text-amber-600" : "muted") : "text-rose-600 dark:text-rose-400"}`}>{d > 0 ? `in ${d} day${d === 1 ? "" : "s"}` : d === 0 ? "today" : `${-d} day${d === -1 ? "" : "s"} ago`}</div>}

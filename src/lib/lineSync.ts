@@ -42,9 +42,10 @@ export async function syncResellerLines(resellerId: string): Promise<LineSyncSta
   const panels = await db.panelIntegration.findMany({ where: { resellerId } });
   const subs = await db.subscription.findMany({
     where: { resellerId, isTest: false, xuiLineId: { not: null }, status: { in: ["ACTIVE", "EXPIRED"] } },
-    select: { id: true, panelId: true, xuiLineId: true, status: true, expiresAt: true, lineUsername: true, linePasswordEnc: true, maxConnections: true, panelNotes: true },
+    select: { id: true, panelId: true, xuiLineId: true, status: true, expiresAt: true, lineUsername: true, linePasswordEnc: true, maxConnections: true, panelNotes: true, panelTrial: true },
   });
   state.total = subs.length;
+  const missingSubs: Array<{ id: string; panelNotes: string | null }> = [];
   await save(resellerId, state);
   try {
     for (const panel of panels) {
@@ -82,7 +83,9 @@ export async function syncResellerLines(resellerId: string): Promise<LineSyncSta
             const line = await getLine(s.xuiLineId!);
             state.checked++;
             if (!line || (memberId && line.memberId && line.memberId !== memberId)) {
+              // Deleted on the panel (or moved to another reseller) — decided after the run (safety check).
               state.missing++;
+              missingSubs.push(s);
             } else {
               const patch = panelChanges(s, line);
               const pass = line.password && (!s.linePasswordEnc || decrypt(s.linePasswordEnc) !== line.password) ? { linePasswordEnc: encrypt(line.password) } : {};
@@ -96,7 +99,16 @@ export async function syncResellerLines(resellerId: string): Promise<LineSyncSta
         }),
       );
     }
-    state.status = "DONE";
+    // Safety: if many lines "disappeared" at once, the panel is more likely broken than cleaned up —
+    // nothing is changed then. Otherwise those lines no longer count as lines of this store.
+    if (missingSubs.length > 10 && missingSubs.length > state.checked * 0.2) {
+      state.error = `${missingSubs.length} lines were not found on the panel — nothing was changed. Check the panel connection.`;
+    } else {
+      for (const m of missingSubs) {
+        await db.subscription.update({ where: { id: m.id }, data: { status: "CANCELED", panelNotes: [m.panelNotes, "Not found on the panel (deleted there)"].filter(Boolean).join(" · ").slice(0, 500) } });
+      }
+    }
+    state.status = state.error ? "ERROR" : "DONE";
   } catch (e) {
     state.status = "ERROR";
     state.error = String((e as Error).message).slice(0, 300);
