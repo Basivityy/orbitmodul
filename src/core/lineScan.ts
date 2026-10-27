@@ -114,3 +114,28 @@ export class AdaptiveThrottle {
     this.cooldownUntil = Math.max(this.cooldownUntil, this.now() + Math.min(60_000, 3000 * 2 ** attempt));
   }
 }
+
+export interface BillingLine {
+  status: string;
+  expiresAt: Date | null;
+  lineUsername: string | null;
+  maxConnections: number | null;
+  panelNotes: string | null;
+}
+
+/**
+ * What changed on the panel for a line that is already in billing (renewed or disabled on the
+ * panel, new notes…). Returns only the changed fields, or null when billing is up to date.
+ * Status is only switched between ACTIVE and EXPIRED (other states are billing decisions).
+ */
+export function panelChanges(sub: BillingLine, line: LineInfo, now = new Date()): Partial<BillingLine> | null {
+  const patch: Partial<BillingLine> = {};
+  if (line.expiresAt && (!sub.expiresAt || Math.abs(line.expiresAt.getTime() - sub.expiresAt.getTime()) > 60_000)) patch.expiresAt = line.expiresAt;
+  const expires = line.expiresAt ?? sub.expiresAt;
+  const active = (!expires || expires > now) && line.enabled !== false;
+  if ((sub.status === "ACTIVE" || sub.status === "EXPIRED") && sub.status !== (active ? "ACTIVE" : "EXPIRED")) patch.status = active ? "ACTIVE" : "EXPIRED";
+  if (line.username && line.username !== sub.lineUsername) patch.lineUsername = line.username;
+  if (line.maxConnections && line.maxConnections !== sub.maxConnections) patch.maxConnections = line.maxConnections;
+  if ((line.notes ?? null) !== (sub.panelNotes ?? null)) patch.panelNotes = line.notes ?? null;
+  return Object.keys(patch).length ? patch : null;
+}

@@ -1,11 +1,12 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
-import { SubmitButton } from "@/components/client";
+import { AutoRefresh, SubmitButton } from "@/components/client";
+import { getLineSync } from "@/lib/lineSync";
 import { Card, DateTime, Empty, PageHeader, Pagination } from "@/components/ui";
 import { requireReseller } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isPlaceholderEmail } from "@/core/importedCustomers";
-import { deleteCustomerAction } from "../actions/customers";
+import { deleteCustomerAction, refreshLinesAction } from "../actions/customers";
 
 export const metadata = { title: "Customers" };
 const PER = 50;
@@ -25,7 +26,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
     ? { OR: [{ lineUsername: { contains: q, mode: "insensitive" } }, { customer: { email: { contains: q, mode: "insensitive" } } }, { customer: { name: { contains: q, mode: "insensitive" } } }] }
     : {};
   const filter: Prisma.SubscriptionWhereInput = show === "active" ? activeWhere : show === "inactive" ? { NOT: activeWhere } : {};
-  const [rows, totalLines, activeLines] = await Promise.all([
+  const [rows, totalLines, activeLines, sync] = await Promise.all([
     db.subscription.findMany({
       where: { AND: [base, search, filter] },
       orderBy: [{ expiresAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
@@ -35,7 +36,9 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
     }),
     db.subscription.count({ where: base }),
     db.subscription.count({ where: { AND: [base, activeWhere] } }),
+    getLineSync(reseller.id),
   ]);
+  const syncing = !!sync && (sync.status === "QUEUED" || sync.status === "RUNNING") && Date.now() - new Date(sync.at).getTime() < 2 * 3600_000;
   const isActive = (s: { status: string; expiresAt: Date | null }) => s.status === "ACTIVE" && (!s.expiresAt || s.expiresAt > now);
   const days = (d: Date) => Math.ceil((d.getTime() - now.getTime()) / 86_400_000);
   const tab = (key: string, label: string, n: number, cls: string) => (
@@ -51,6 +54,19 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
         {tab("all", "All lines", totalLines, "text-slate-950 dark:text-white")}
         {tab("active", "Active", activeLines, "text-emerald-600 dark:text-emerald-400")}
         {tab("inactive", "Inactive", totalLines - activeLines, "text-rose-600 dark:text-rose-400")}
+      </div>
+      <AutoRefresh active={syncing} intervalMs={5000} />
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 px-4 py-3 text-sm dark:border-slate-800">
+        <span>
+          {syncing ? (
+            <b>Refreshing from the panel… {sync!.checked}/{sync!.total || "?"}</b>
+          ) : sync ? (
+            <>Last refresh from the panel: <DateTime value={new Date(sync.at)} /> · {sync.updated} changed{sync.missing ? ` · ${sync.missing} not found on the panel` : ""}{sync.status === "ERROR" ? <span className="text-rose-600"> · error: {sync.error}</span> : null}</>
+          ) : (
+            <>Lines renewed or changed directly on the panel are taken over once a day.</>
+          )}
+        </span>
+        <form action={refreshLinesAction}><SubmitButton className="btn-secondary btn-sm">{syncing ? "Refreshing…" : "Refresh from panel"}</SubmitButton></form>
       </div>
       <form className="mb-4 flex gap-2">
         {show !== "all" && <input type="hidden" name="show" value={show} />}

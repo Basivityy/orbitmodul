@@ -1,5 +1,8 @@
 "use server";
 import { LineScanError, startLineImport, stopLineImport } from "@/lib/lineScanJob";
+import { getLineSync, markSyncQueued } from "@/lib/lineSync";
+import { enqueueLineSync } from "@/lib/queue";
+import { rateLimit } from "@/lib/ratelimit";
 
 import { generateLineUsername, isValidEmail } from "@/core/ids";
 import { placeholderEmail } from "@/core/importedCustomers";
@@ -144,5 +147,18 @@ export async function lineImportAction(fd: FormData) {
     }
     await audit({ actor: actorOf(user), resellerId: reseller.id, action: "customer.line_import_started", meta: { mode, ceiling } });
     return mode === "new" ? "Looking for new lines on the panel…" : "Import started. It runs in the background — you can leave this page.";
+  });
+}
+
+/** "Refresh from panel": re-reads all lines (renewed / disabled directly on the panel). */
+export async function refreshLinesAction() {
+  const { reseller } = await requireReseller();
+  return act("/dashboard/customers", async () => {
+    const st = await getLineSync(reseller.id);
+    if (st && (st.status === "QUEUED" || st.status === "RUNNING") && Date.now() - new Date(st.at).getTime() < 2 * 3600_000) return "The refresh is already running.";
+    if (!(await rateLimit(`linesync:${reseller.id}`, 6, 3600))) throw new UserError("At most 6 refreshes per hour.");
+    await markSyncQueued(reseller.id);
+    await enqueueLineSync(reseller.id);
+    return "Refreshing your lines from the panel — this page updates by itself.";
   });
 }

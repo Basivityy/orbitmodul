@@ -65,3 +65,15 @@ test("line scan: panel 'busy' answers slow the scan down instead of stopping it"
   for (let i = 0; i < 100; i++) th.ok();
   assert.equal(th.gapMs, 0, "panel answers normally again → full speed");
 });
+
+test("line refresh: renewed / disabled on the panel is picked up, unchanged lines are left alone", async () => {
+  const { panelChanges } = await import("../../src/core/lineScan.js");
+  const now = new Date("2026-10-27T00:00:00Z");
+  const sub = { status: "EXPIRED", expiresAt: new Date("2026-10-20T00:00:00Z"), lineUsername: "marko2026", maxConnections: 1, panelNotes: null };
+  const renewed = { ...line(5, "491"), username: "marko2026", expiresAt: new Date("2026-11-27T00:00:00Z"), enabled: true, maxConnections: 2, notes: "VIP" };
+  assert.deepEqual(panelChanges(sub, renewed, now), { expiresAt: renewed.expiresAt, status: "ACTIVE", maxConnections: 2, panelNotes: "VIP" });
+  const same = { status: "ACTIVE", expiresAt: renewed.expiresAt, lineUsername: "marko2026", maxConnections: 2, panelNotes: "VIP" };
+  assert.equal(panelChanges(same, renewed, now), null);
+  assert.deepEqual(panelChanges(same, { ...renewed, enabled: false }, now), { status: "EXPIRED" }, "disabled on the panel = inactive");
+  assert.equal(panelChanges({ ...same, status: "SUSPENDED" }, renewed, now), null, "billing-only states are not overwritten");
+});

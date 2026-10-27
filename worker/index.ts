@@ -13,7 +13,8 @@ import { audit } from "@/lib/audit";
 import { accessDetailsEmail } from "@/lib/customerEmails";
 import { refreshPublicUrl } from "@/lib/publicUrl";
 import { maxPlayerClientFactory, PrismaActivationStore, PrismaMaxPlayerStore, prismaPanelFactory } from "@/lib/activationStore";
-import { EmailJob, enqueueActivation, enqueueEmail, enqueueMaxPlayer, enqueueLineImport, enqueueVodScan, maintenanceQueue, maxPlayerQueueSize, QUEUE_ACTIVATION, QUEUE_EMAIL, QUEUE_LINEIMPORT, QUEUE_MAINTENANCE, QUEUE_MAXPLAYER, QUEUE_VOD, QUEUE_WEBHOOK } from "@/lib/queue";
+import { EmailJob, enqueueActivation, enqueueEmail, enqueueMaxPlayer, enqueueLineImport, enqueueLineSync, enqueueVodScan, maintenanceQueue, maxPlayerQueueSize, QUEUE_ACTIVATION, QUEUE_EMAIL, QUEUE_LINEIMPORT, QUEUE_MAINTENANCE, QUEUE_MAXPLAYER, QUEUE_VOD, QUEUE_WEBHOOK, QUEUE_LINESYNC } from "@/lib/queue";
+import { getLineSync, markSyncQueued, syncResellerLines } from "@/lib/lineSync";
 import { runLineImportChunk } from "@/lib/lineScanJob";
 import { scanReseller } from "@/lib/vod";
 import { dailySummary, notifyActivation, notifyReseller } from "@/lib/telegram";
@@ -96,6 +97,9 @@ const emailWorker = new Worker(QUEUE_EMAIL, async (job: Job<EmailJob>) => sendTe
 
 // "Import all my lines": two resellers' scans at a time, each in chunks of ids.
 const lineImportWorker = new Worker(QUEUE_LINEIMPORT, async (job: Job<{ importId: string }>) => runLineImportChunk(job.data.importId), { connection, concurrency: 2, lockDuration: 300_000 });
+
+// "Refresh from panel": takes over lines renewed / disabled directly on the panel.
+const lineSyncWorker = new Worker(QUEUE_LINESYNC, async (job: Job<{ resellerId: string }>) => syncResellerLines(job.data.resellerId), { connection, concurrency: 1, lockDuration: 300_000 });
 
 // Webhooks to resellers' websites (retried with backoff by the queue).
 const webhookWorker = new Worker(QUEUE_WEBHOOK, async (job: Job<WebhookJob>) => deliverWebhook(job.data), { connection, concurrency: 5 });
@@ -182,6 +186,22 @@ async function sweep() {
     await enqueueLineImport(li.id);
   }
 
+  // 3f) Daily "refresh from panel" for every reseller with lines in billing (a few per sweep).
+  {
+    const withLines = await db.subscription.groupBy({ by: ["resellerId"], where: { isTest: false, xuiLineId: { not: null }, reseller: { status: "ACTIVE" } }, _count: { _all: true } });
+    let queued = 0;
+    for (const r of withLines) {
+      if (queued >= 5) break;
+      const st = await getLineSync(r.resellerId);
+      const age = st ? now.getTime() - new Date(st.at).getTime() : Infinity;
+      const busy = st?.status === "QUEUED" || st?.status === "RUNNING";
+      if (busy ? age < 2 * 3600_000 : age < 24 * 3600_000) continue;
+      await markSyncQueued(r.resellerId);
+      await enqueueLineSync(r.resellerId);
+      queued++;
+    }
+  }
+
   // 3d) Telegram daily summary for resellers, once a day after 07:00 UTC.
   if (now.getUTCHours() >= 7) {
     const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -209,7 +229,7 @@ async function sweep() {
 
 const maintenanceWorker = new Worker(QUEUE_MAINTENANCE, async () => sweep(), { connection, concurrency: 1 });
 
-for (const w of [activationWorker, maxPlayerWorker, emailWorker, maintenanceWorker, vodWorker, lineImportWorker, webhookWorker]) {
+for (const w of [activationWorker, maxPlayerWorker, emailWorker, maintenanceWorker, vodWorker, lineImportWorker, webhookWorker, lineSyncWorker]) {
   w.on("failed", (job, err) => console.error(`[${w.name}] job ${job?.id} failed (attempt ${job?.attemptsMade}): ${err.message}`));
   w.on("error", (err) => console.error(`[${w.name}]`, err.message));
 }
@@ -226,7 +246,7 @@ main().catch((e) => {
 
 async function shutdown() {
   console.log("[worker] shutting down");
-  await Promise.allSettled([activationWorker.close(), maxPlayerWorker.close(), emailWorker.close(), maintenanceWorker.close(), vodWorker.close(), lineImportWorker.close(), webhookWorker.close()]);
+  await Promise.allSettled([activationWorker.close(), maxPlayerWorker.close(), emailWorker.close(), maintenanceWorker.close(), vodWorker.close(), lineImportWorker.close(), webhookWorker.close(), lineSyncWorker.close()]);
   await db.$disconnect();
   process.exit(0);
 }

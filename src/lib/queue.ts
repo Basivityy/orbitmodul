@@ -9,6 +9,7 @@ export const QUEUE_MAINTENANCE = "maintenance";
 export const QUEUE_VOD = "vod";
 export const QUEUE_LINEIMPORT = "lineimport";
 export const QUEUE_WEBHOOK = "webhook";
+export const QUEUE_LINESYNC = "linesync";
 
 const g = globalThis as unknown as { queues?: Record<string, Queue> };
 
@@ -95,6 +96,11 @@ export async function enqueueLineImport(importId: string, delayMs = 0): Promise<
 /** Event for the reseller's website — retried with backoff (about 1 day in total). */
 export async function enqueueWebhook(job: { resellerId: string; id: string; event: string; created: string; data: Record<string, unknown> }): Promise<void> {
   await queue(QUEUE_WEBHOOK).add("deliver", job, { jobId: job.id, attempts: 8, backoff: { type: "exponential", delay: 30_000 }, removeOnComplete: { age: 3 * 24 * 3600 }, removeOnFail: { age: 14 * 24 * 3600 } });
+}
+
+/** "Refresh from panel" for one reseller (at most one waiting per reseller). */
+export async function enqueueLineSync(resellerId: string): Promise<void> {
+  await queue(QUEUE_LINESYNC).add("sync", { resellerId }, { jobId: `ls-${resellerId}-${Date.now()}`, deduplication: { id: `ls-${resellerId}` }, attempts: 1, removeOnComplete: { age: 24 * 3600 }, removeOnFail: { age: 7 * 24 * 3600 } });
 }
 
 export function maintenanceQueue(): Queue {
