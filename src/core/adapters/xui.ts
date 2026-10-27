@@ -154,7 +154,11 @@ export class XuiOneAdapter implements PanelAdapter {
       const n = Number(exp);
       expiresAt = Number.isFinite(n) && n > 0 ? new Date(n * 1000) : isNaN(Date.parse(String(exp))) ? null : new Date(String(exp));
     }
-    const enabled = raw.enabled === undefined ? (raw.admin_enabled === undefined ? null : Number(raw.admin_enabled) === 1) : Number(raw.enabled) === 1 || raw.enabled === true;
+    // A line is on only when neither the reseller ("enabled") nor the admin ("admin_enabled") switched it off.
+    const flag = (v: unknown) => (v === undefined || v === null || v === "" ? null : v === true || Number(v) === 1);
+    const e1 = flag(raw.enabled);
+    const e2 = flag(raw.admin_enabled);
+    const enabled = e1 === null && e2 === null ? null : e1 !== false && e2 !== false;
     return {
       id: String(id),
       username: String(raw.username ?? ""),

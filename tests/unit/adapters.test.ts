@@ -443,3 +443,23 @@ test("XUI reseller API: a line the panel makes expired is never left behind", as
     await rx.close();
   }
 });
+
+test("XUI adapter: a line switched off by the admin (admin_enabled=0) is not enabled", async () => {
+  const srv = await startServer((req) => {
+    const id = req.query.get("id");
+    const base = { id, username: "u" + id, password: "p", exp_date: "1893456000", max_connections: 1, member_id: 491 };
+    if (id === "1") return { json: { status: "STATUS_SUCCESS", data: { ...base, enabled: 1, admin_enabled: 0 } } };
+    if (id === "2") return { json: { status: "STATUS_SUCCESS", data: { ...base, enabled: 1, admin_enabled: 1 } } };
+    if (id === "3") return { json: { status: "STATUS_SUCCESS", data: { ...base, enabled: 0 } } };
+    return { json: { status: "STATUS_SUCCESS", data: { ...base } } };
+  });
+  try {
+    const a = new XuiOneAdapter({ apiUrl: `${srv.url}/resellerapi`, apiKey: KEY });
+    assert.equal((await a.getLine("1"))?.enabled, false);
+    assert.equal((await a.getLine("2"))?.enabled, true);
+    assert.equal((await a.getLine("3"))?.enabled, false);
+    assert.equal((await a.getLine("4"))?.enabled, null);
+  } finally {
+    await srv.close();
+  }
+});
