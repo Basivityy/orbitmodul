@@ -57,12 +57,14 @@ export function SubmitButton({ children, className = "btn-primary", name, value,
   );
 }
 
-export function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+export function CopyButton({ text, label = "Copy", compact = false }: { text: string; label?: string; compact?: boolean }) {
   const [done, setDone] = useState(false);
   return (
     <button
       type="button"
-      className="btn-secondary btn-sm"
+      title={compact ? "Copy" : undefined}
+      aria-label={compact ? `Copy ${text}` : undefined}
+      className={compact ? "inline-flex h-6 w-6 items-center justify-center rounded text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white" : "btn-secondary btn-sm"}
       onClick={async () => {
         let ok = false;
         try {
@@ -90,7 +92,7 @@ export function CopyButton({ text, label = "Copy" }: { text: string; label?: str
         }
       }}
     >
-      {done ? "Copied ✓" : label}
+      {done ? (compact ? "✓" : "Copied ✓") : label}
     </button>
   );
 }
