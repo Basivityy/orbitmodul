@@ -533,3 +533,13 @@ Super Admin može resellerima isključiti API i widget (Admin → Resellers → 
 
 ## Import i greška 503
 Ako panel vrati 503 (previše zahtjeva), import sam uspori, sačeka i nastavi — ne staje više sa greškom.
+
+## Emailovi — zašto nekad ne stignu
+- Email „linija je spremna” sada ide kroz red za slanje: ako slanje ne uspije (Brevo limit, timeout), pokušava ponovo do 6 puta (30 s, 1 min, 2 min…). Ranije se taj email nije ponavljao.
+- Na stranici narudžbe (Orders → narudžba) piše da li je email poslan, kad i kroz koji sandučić, ili zašto nije.
+- Svi pokušaji: reseller → **Email sending** (dolje log), admin → **Logs**.
+- Ako piše *SENT* a kupac ga nema: email je u Spamu/Promotions. Rješenje je u Brevo: Senders, Domains & Dedicated IPs → **Domains** → dodaj domen sa kojeg šalješ i upiši DKIM/SPF/DMARC zapise u Cloudflare DNS (Brevo ih pokaže). Adresa pošiljaoca mora biti na tom domenu.
+- Brevo besplatni plan ima dnevni limit (300 emailova). Kad se pređe, slanje pada sa greškom i ponovo se pokušava kasnije.
+
+## Greške sa panela
+Umjesto kratkih kodova (npr. `get_package`, `STATUS_NO_CREDITS`, `HTTP 503`) modul piše šta se desilo i šta treba uraditi, a ispod originalni odgovor panela.

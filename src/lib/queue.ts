@@ -77,6 +77,15 @@ export async function enqueueEmail(job: EmailJob): Promise<void> {
   await queue(QUEUE_EMAIL).add("email", job, { attempts: 5, backoff: { type: "exponential", delay: 30_000 }, removeOnComplete: 1000, removeOnFail: { age: 14 * 24 * 3600 } });
 }
 
+/**
+ * "Your line is ready" email of an order. Only the order id goes into Redis — the login details are
+ * read from the database when the email is sent. Retried like every email (SMTP hiccups, Brevo
+ * limits…), and at most one per order (jobId).
+ */
+export async function enqueueActivationEmail(orderId: string): Promise<void> {
+  await queue(QUEUE_EMAIL).add("activation", { orderId } as unknown as EmailJob, { jobId: `actmail-${orderId}`, attempts: 6, backoff: { type: "exponential", delay: 30_000 }, removeOnComplete: { age: 7 * 24 * 3600 }, removeOnFail: { age: 14 * 24 * 3600 } });
+}
+
 /** VOD library scan of one reseller (double runs are stopped by the claim in scanReseller). */
 export async function enqueueVodScan(resellerId: string): Promise<void> {
   await queue(QUEUE_VOD).add(

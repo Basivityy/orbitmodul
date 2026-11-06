@@ -1,3 +1,4 @@
+import { explainPanelErrorText } from "@/core/panelErrors";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { SubmitButton } from "@/components/client";
@@ -106,7 +107,7 @@ export default async function AdminCustomerLinePage({ params, searchParams }: { 
                     <td><Money amount={o.amountCents} currency={o.currency} /></td>
                     <td><StatusBadge status={o.status} /></td>
                     <td><DateTime value={o.createdAt} /></td>
-                    <td className="max-w-sm whitespace-normal text-xs text-rose-600">{o.errorMessage}{o.status === "ACTIVATION_FAILED" && <> · <Link href="/admin/activations">Retry</Link></>}</td>
+                    <td className="max-w-sm whitespace-normal text-xs text-rose-600">{explainPanelErrorText(o.errorMessage)}{o.status === "ACTIVATION_FAILED" && <> · <Link href="/admin/activations">Retry</Link></>}</td>
                   </tr>
                 ))}
               </tbody>

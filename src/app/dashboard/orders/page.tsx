@@ -1,3 +1,4 @@
+import { explainPanelError } from "@/core/panelErrors";
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { SubmitButton } from "@/components/client";
@@ -49,7 +50,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                     <td><DateTime value={o.createdAt} /></td>
                     <td><Money amount={o.amountCents} currency={o.currency} /></td>
                     <td>{o.provider.toLowerCase()}</td>
-                    <td><StatusBadge status={o.status} label={orderStatusLabel[o.status]} />{o.errorMessage && <div className="max-w-xs truncate text-xs text-rose-600" title={o.errorMessage}>{o.errorMessage}</div>}</td>
+                    <td><StatusBadge status={o.status} label={orderStatusLabel[o.status]} />{o.errorMessage && o.status !== "COMPLETED" && <div className="max-w-xs whitespace-normal text-xs text-rose-600" title={o.errorMessage}>{explainPanelError(o.errorMessage)?.title}</div>}</td>
                     <td className="text-right">
                       {["ACTIVATION_FAILED", "ON_HOLD"].includes(o.status) && (
                         <form action={retryActivationAction}>

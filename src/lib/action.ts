@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { MaxPlayerError } from "@/core/adapters/maxplayer";
 import { PanelApiError } from "@/core/adapters/types";
 import { PaymentProviderError } from "@/core/payments";
+import { explainPanelErrorText } from "@/core/panelErrors";
 import { CheckoutError } from "./orders";
 
 /** An error whose message is safe and meant to be shown to the user. */
@@ -9,7 +10,7 @@ export class UserError extends Error {}
 
 function userMessage(e: unknown): string {
   if (e instanceof UserError || e instanceof CheckoutError) return e.message;
-  if (e instanceof PanelApiError) return `Panel API: ${e.message}`;
+  if (e instanceof PanelApiError) return explainPanelErrorText(e.message);
   if (e instanceof MaxPlayerError) return `MaxPlayer API: ${e.message}`;
   if (e instanceof PaymentProviderError) return e.message;
   if (e && typeof e === "object" && "issues" in e) {
@@ -26,7 +27,7 @@ function withParam(path: string, key: string, value: string): string {
   const params = new URLSearchParams(q);
   // An older message in the address is replaced, never stacked.
   for (const k of ["ok", "err", "n"]) params.delete(k);
-  params.set(key, value.slice(0, 300));
+  params.set(key, value.slice(0, key === "err" ? 800 : 300));
   // Unique per answer: the page always "changes", so the loading indicator always ends.
   params.set("n", Date.now().toString(36));
   return `${p}?${params.toString()}${hash ? "#" + hash : ""}`;

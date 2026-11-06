@@ -13,7 +13,7 @@ import { audit } from "@/lib/audit";
 import { accessDetailsEmail } from "@/lib/customerEmails";
 import { refreshPublicUrl } from "@/lib/publicUrl";
 import { maxPlayerClientFactory, PrismaActivationStore, PrismaMaxPlayerStore, prismaPanelFactory } from "@/lib/activationStore";
-import { EmailJob, enqueueActivation, enqueueEmail, enqueueMaxPlayer, enqueueLineImport, enqueueLineSync, enqueueVodScan, maintenanceQueue, maxPlayerQueueSize, QUEUE_ACTIVATION, QUEUE_EMAIL, QUEUE_LINEIMPORT, QUEUE_MAINTENANCE, QUEUE_MAXPLAYER, QUEUE_VOD, QUEUE_WEBHOOK, QUEUE_LINESYNC } from "@/lib/queue";
+import { EmailJob, enqueueActivation, enqueueActivationEmail, enqueueEmail, enqueueMaxPlayer, enqueueLineImport, enqueueLineSync, enqueueVodScan, maintenanceQueue, maxPlayerQueueSize, QUEUE_ACTIVATION, QUEUE_EMAIL, QUEUE_LINEIMPORT, QUEUE_MAINTENANCE, QUEUE_MAXPLAYER, QUEUE_VOD, QUEUE_WEBHOOK, QUEUE_LINESYNC } from "@/lib/queue";
 import { getLineSync, markSyncQueued, syncResellerLines } from "@/lib/lineSync";
 import { runLineImportChunk } from "@/lib/lineScanJob";
 import { scanReseller } from "@/lib/vod";
@@ -58,7 +58,11 @@ const activationWorker = new Worker(
     }
     if (r.status === "completed") {
       if (r.maxPlayer) await enqueueMaxPlayer(r.subscriptionId);
-      await sendActivationEmail(job.data.orderId).catch((e) => console.error("[worker] activation email failed", e.message));
+      // Through the email queue, so a failed send (SMTP timeout, provider limit…) is retried instead of lost.
+      await enqueueActivationEmail(job.data.orderId).catch(async (e) => {
+        console.error("[worker] activation email could not be queued, sending now", e.message);
+        await sendActivationEmail(job.data.orderId).catch((e2) => console.error("[worker] activation email failed", e2.message));
+      });
       if (!r.test) await notifyActivation(job.data.orderId, r);
       await emitActivationWebhook(job.data.orderId, { status: "completed", subscriptionId: r.subscriptionId });
     }
@@ -93,7 +97,11 @@ const maxPlayerWorker: Worker = new Worker(
   { connection, concurrency: 1, limiter: { max: env.maxPlayerPerMinute, duration: 60_000 } },
 );
 
-const emailWorker = new Worker(QUEUE_EMAIL, async (job: Job<EmailJob>) => sendTemplatedEmail(job.data), { connection, concurrency: 5 });
+const emailWorker = new Worker(
+  QUEUE_EMAIL,
+  async (job: Job<EmailJob>) => (job.name === "activation" ? sendActivationEmail((job.data as unknown as { orderId: string }).orderId) : sendTemplatedEmail(job.data)),
+  { connection, concurrency: 3 },
+);
 
 // "Import all my lines": two resellers' scans at a time, each in chunks of ids.
 const lineImportWorker = new Worker(QUEUE_LINEIMPORT, async (job: Job<{ importId: string }>) => runLineImportChunk(job.data.importId), { connection, concurrency: 2, lockDuration: 300_000 });

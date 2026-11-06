@@ -1,3 +1,4 @@
+import { explainPanelErrorText } from "@/core/panelErrors";
 import Link from "next/link";
 import { SubmitButton } from "@/components/client";
 import { Card, DateTime, Empty, Flash, Money, PageHeader, StatusBadge } from "@/components/ui";
@@ -32,7 +33,7 @@ export default async function ActivationsPage({ searchParams }: { searchParams: 
                     <td><Money amount={o.amountCents} currency={o.currency} /></td>
                     <td><StatusBadge status={o.status} /></td>
                     <td>{o.attempts}</td>
-                    <td className="max-w-sm whitespace-normal text-xs text-rose-600">{o.errorMessage}</td>
+                    <td className="max-w-sm whitespace-normal text-xs text-rose-600">{explainPanelErrorText(o.errorMessage)}</td>
                     <td><form action={adminRetryActivationAction}><input type="hidden" name="orderId" value={o.id} /><SubmitButton className="btn-secondary btn-sm">Retry</SubmitButton></form></td>
                   </tr>
                 ))}

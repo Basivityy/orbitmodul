@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { explainPanelError, explainPanelErrorText } from "@/core/panelErrors";
 import { formatMoney } from "@/core/money";
 
 export function PageHeader({ title, description, actions }: { title: string; description?: React.ReactNode; actions?: React.ReactNode }) {
@@ -67,7 +68,9 @@ export function Toggle({ name, label, defaultChecked, hint }: { name: string; la
 
 export function Flash({ sp }: { sp: Record<string, string | string[] | undefined> }) {
   const ok = typeof sp.ok === "string" ? sp.ok : null;
-  const err = typeof sp.err === "string" ? sp.err : null;
+  const rawErr = typeof sp.err === "string" ? sp.err : null;
+  // Raw panel answers ("Panel error: get_package") are explained in plain words.
+  const err = rawErr && /^(?:Panel (?:API|error)|Panel)\s*:/i.test(rawErr) ? explainPanelErrorText(rawErr.replace(/^Panel(?: API)?\s*:\s*/i, "")) : rawErr;
   if (!ok && !err) return null;
   return (
     <div
@@ -160,5 +163,18 @@ export function BarChart({ data, currency, height = 160 }: { data: Array<{ label
         <span>{data[data.length - 1]?.label}</span>
       </figcaption>
     </figure>
+  );
+}
+
+/** Activation / panel error with what happened, what to do and the panel's own answer. */
+export function PanelErrorBox({ message, className = "" }: { message: string | null | undefined; className?: string }) {
+  const e = explainPanelError(message);
+  if (!e) return null;
+  return (
+    <div role="alert" className={`rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100 ${className}`}>
+      <p className="font-semibold">⚠ {e.title}</p>
+      {e.fix && <p className="mt-1">{e.fix}</p>}
+      {e.detail && <p className="mt-2 font-mono text-xs opacity-75">Panel answer: {e.detail}</p>}
+    </div>
   );
 }
