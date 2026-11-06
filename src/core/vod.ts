@@ -3,6 +3,7 @@
  * aired episodes are missing (compared with TMDB). Pure logic + small HTTP clients, no database.
  */
 import { httpRequest, HttpError, type HttpResult } from "./http";
+import type { RawTv } from "./vodMatch";
 
 export type Http = (url: string, init?: { headers?: Record<string, string>; timeoutMs?: number }) => Promise<HttpResult>;
 
@@ -57,7 +58,7 @@ export function parseSeriesList(json: unknown): PanelSeries[] {
 }
 
 /** `get_series_info` answer → episodes on the panel (season > 0), plus a TMDB id if the info has one. */
-export function parseSeriesEpisodes(json: any): { episodes: Ep[]; tmdbId: string | null } {
+export function parseSeriesEpisodes(json: any): { episodes: Ep[]; tmdbId: string | null; names: string[]; year: string | null } {
   const eps = new Map<string, Ep>();
   const groups = json?.episodes;
   const lists: any[] = Array.isArray(groups) ? groups : groups && typeof groups === "object" ? Object.entries(groups).map(([k, v]) => (Array.isArray(v) ? v.map((x: any) => ({ ...x, __season: k })) : [])) : [];
@@ -69,7 +70,13 @@ export function parseSeriesEpisodes(json: any): { episodes: Ep[]; tmdbId: string
       eps.set(`${s}:${e}`, { s, e });
     }
   }
-  return { episodes: [...eps.values()].sort(epSort), tmdbId: parseTmdbId(json?.info?.tmdb ?? json?.info?.tmdb_id) };
+  const info = json?.info ?? {};
+  // other titles the panel knows (original name…) help the TMDB search
+  const names = [info.name, info.o_name, info.original_name, info.title]
+    .filter((x: unknown): x is string => typeof x === "string" && x.trim().length > 1)
+    .map((x: string) => x.trim());
+  const year = String(info.releaseDate ?? info.release_date ?? info.year ?? "").match(/(19|20)\d{2}/)?.[0] ?? null;
+  return { episodes: [...eps.values()].sort(epSort), tmdbId: parseTmdbId(info.tmdb ?? info.tmdb_id), names: [...new Set(names)], year };
 }
 
 /** Next announced episode (TMDB `next_episode_to_air`), e.g. the first episode of a coming season. */
@@ -179,7 +186,7 @@ export class VodSourceError extends Error {}
 
 /** Xtream Codes player API of the panel, read with one (monitoring) line. */
 export class XtreamClient {
-  constructor(private serverUrl: string, private username: string, private password: string, private http: Http = httpRequest) {}
+  constructor(private serverUrl: string, private username: string, private password: string, private http: Http = httpRequest, private sleep: (ms: number) => Promise<void> = (ms) => new Promise((res) => setTimeout(res, ms))) {}
 
   private url(params: Record<string, string>): string {
     const u = new URL("player_api.php", this.serverUrl.replace(/\/+$/, "") + "/");
@@ -190,12 +197,20 @@ export class XtreamClient {
   }
 
   private async get(params: Record<string, string>, timeoutMs = 60_000): Promise<any> {
-    let r: HttpResult;
-    try {
-      r = await this.http(this.url(params), { timeoutMs, headers: { "User-Agent": "OrbitModul-VOD/1.0" } });
-    } catch (e) {
-      throw new VodSourceError(`The panel could not be reached: ${(e as Error).message}`);
+    let r: HttpResult | null = null;
+    // The panel's nginx answers 503/429 when asked too fast: wait and try again (about 30 s in total).
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        r = await this.http(this.url(params), { timeoutMs, headers: { "User-Agent": "OrbitModul-VOD/1.0" } });
+      } catch (e) {
+        if (attempt === 3) throw new VodSourceError(`The panel could not be reached: ${(e as Error).message}`);
+        await this.sleep(2000 * (attempt + 1));
+        continue;
+      }
+      if (![429, 502, 503, 504].includes(r.status) || attempt === 3) break;
+      await this.sleep(3000 * (attempt + 1));
     }
+    if (!r) throw new VodSourceError("The panel could not be reached.");
     if (r.status === 401 || r.status === 403) throw new VodSourceError("The panel refused the line (wrong username/password, expired or blocked line).");
     if (!r.ok) throw new VodSourceError(`The panel answered HTTP ${r.status}.`);
     if (r.json === null) throw new VodSourceError("The panel did not answer with JSON — check the server address (e.g. http://line.example.com:80).");
@@ -223,7 +238,7 @@ export class XtreamClient {
     return parseSeriesList(await this.get({ action: "get_series" }, 120_000));
   }
 
-  async seriesInfo(seriesId: string): Promise<{ episodes: Ep[]; tmdbId: string | null }> {
+  async seriesInfo(seriesId: string): Promise<ReturnType<typeof parseSeriesEpisodes>> {
     return parseSeriesEpisodes(await this.get({ action: "get_series_info", series_id: seriesId }));
   }
 }
@@ -239,7 +254,7 @@ export class TmdbClient {
     for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
     const headers: Record<string, string> = { Accept: "application/json" };
     if (bearer) headers.Authorization = `Bearer ${this.key}`;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       const r = await this.http(u.toString(), { headers, timeoutMs: 20_000 });
       if (r.status === 429) {
         await new Promise((res) => setTimeout(res, 1000 * (attempt + 1)));
@@ -255,6 +270,12 @@ export class TmdbClient {
 
   async tv(id: string): Promise<any | null> {
     return this.get(`/tv/${encodeURIComponent(id)}`, { language: "en-US" });
+  }
+
+  /** Raw `/search/tv` results (names in the given language). */
+  async searchRaw(query: string, opts: { year: string | null; language: string }): Promise<RawTv[]> {
+    const j = await this.get("/search/tv", { query, include_adult: "false", language: opts.language, ...(opts.year ? { first_air_date_year: opts.year } : {}) });
+    return Array.isArray(j?.results) ? j.results : [];
   }
 
   /** Best match for a series title (year preferred when known). */

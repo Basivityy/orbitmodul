@@ -5,7 +5,8 @@ import { AutoRefresh, SubmitButton } from "@/components/client";
 import { Card, DateTime, Empty, Flash, PageHeader, Pagination, Stat } from "@/components/ui";
 import { requireReseller } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getTmdbKey } from "@/lib/vod";
+import { getTmdbKey, vodScanStuck } from "@/lib/vod";
+import { titleCandidates } from "@/core/vodMatch";
 import { deleteVodLineAction, saveVodLineAction, scanVodNowAction, setVodTmdbAction, toggleVodIgnoreAction } from "../actions/vod";
 
 export const metadata = { title: "VOD monitoring" };
@@ -46,7 +47,8 @@ export default async function VodPage({ searchParams }: { searchParams: Promise<
     db.panelIntegration.findFirst({ where: { resellerId: reseller.id }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }], select: { streamUrl: true, apiUrl: true } }),
   ]);
   const suggestedServer = panel?.streamUrl || (panel ? (() => { try { const u = new URL(panel.apiUrl); return `${u.protocol}//${u.host}`; } catch { return ""; } })() : "");
-  const running = m?.status === "RUNNING" || m?.status === "QUEUED";
+  const stuck = !!m && vodScanStuck(m);
+  const running = !stuck && (m?.status === "RUNNING" || m?.status === "QUEUED");
 
   const tab = TABS.find((t) => t.key === sp.tab) ?? TABS[0];
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
@@ -83,6 +85,19 @@ export default async function VodPage({ searchParams }: { searchParams: Promise<
         ) : undefined}
       />
       <Flash sp={sp} />
+      {stuck && <p className="mb-6 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">The last scan stopped without finishing (the server was probably restarted). Click <b>Scan now</b> to start it again.</p>}
+      {running && (
+        <div className="mb-6 rounded-lg border border-slate-200 p-4 dark:border-slate-800" aria-live="polite">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="flex items-center gap-2 font-semibold"><span className="spinner" aria-hidden /> {m?.status === "QUEUED" ? "Scan is waiting to start…" : "Scanning the series library…"}</span>
+            <span className="tabular-nums muted">{m?.total ? `${m.progress}/${m.total}` : ""}</span>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+            <div className="h-full bg-brand-500 transition-all" style={{ width: `${m?.total ? Math.min(100, Math.round((m.progress / m.total) * 100)) : 3}%` }} />
+          </div>
+          <p className="muted mt-2 text-xs">You can leave this page — the scan runs on the server and this page updates by itself.</p>
+        </div>
+      )}
       {!tmdbReady && <p className="mb-6 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">The platform has not finished setting up VOD monitoring yet (TMDB key). You can already enter your line — scans start once it is set up.</p>}
 
       {m && (
@@ -127,8 +142,9 @@ export default async function VodPage({ searchParams }: { searchParams: Promise<
                 <tbody>
                   {rows.slice(0, PAGE).map((r) => {
                     const st = STATUS[r.status] ?? STATUS.ERROR;
-                    const missing = (r.missing as unknown as Ep[]) ?? [];
-                    const seasons = (r.seasons as unknown as Record<string, number>) ?? {};
+                    const missing = Array.isArray(r.missing) ? (r.missing as unknown as Ep[]).filter((x) => x && typeof x.s === "number" && typeof x.e === "number") : [];
+                    const seasons = r.seasons && typeof r.seasons === "object" && !Array.isArray(r.seasons) ? (r.seasons as unknown as Record<string, number>) : {};
+                    const searchTitle = r.status === "NOT_MATCHED" ? titleCandidates(r.name)[0] ?? r.name : "";
                     const tmdb = r.tmdbOverride || r.tmdbId;
                     return (
                       <tr key={r.id} className={r.ignored ? "opacity-60" : undefined}>
@@ -136,10 +152,15 @@ export default async function VodPage({ searchParams }: { searchParams: Promise<
                           <div className="font-medium">{r.name}</div>
                           <div className="muted text-xs">{[r.category, r.year, r.tmdbName && r.tmdbName !== r.name ? `TMDB: ${r.tmdbName}` : null].filter(Boolean).join(" · ")}</div>
                         </td>
-                        <td><span className={st.cls}>{st.label}</span>{r.status === "NEW_EPISODE" && r.lastAired && <div className="muted text-xs">aired <DateTime value={r.lastAired} dateOnly /></div>}{r.status === "COMPLETE" && <div className="muted text-xs">all aired seasons ({Object.keys((r.seasons as object) ?? {}).length}){r.nextAir ? <> · next episode <DateTime value={r.nextAir} dateOnly /></> : ""}</div>}</td>
+                        <td><span className={st.cls}>{st.label}</span>{r.status === "NEW_EPISODE" && r.lastAired && <div className="muted text-xs">aired <DateTime value={r.lastAired} dateOnly /></div>}{r.status === "COMPLETE" && <div className="muted text-xs">all aired seasons ({Object.keys(seasons).length}){r.nextAir ? <> · next episode <DateTime value={r.nextAir} dateOnly /></> : ""}</div>}</td>
                         <td className="tabular-nums">{r.expectedCount ? `${r.haveCount}/${r.expectedCount}` : r.haveCount ? `${r.haveCount} ep.` : "—"}</td>
                         <td className="max-w-md text-sm">
-                          {r.status === "ERROR" ? <span className="text-rose-600">{r.error}</span> : r.status === "NOT_MATCHED" ? <span className="muted">Not found on TMDB — enter the TMDB number →</span> : missing.length ? <span className="font-mono text-xs">{summarizeMissing(missing, seasons)}</span> : <span className="muted">—</span>}
+                          {r.status === "ERROR" ? <span className="text-rose-600">{r.error}</span> : r.status === "NOT_MATCHED" ? (
+                            <span className="muted">
+                              Not found on TMDB (searched “{searchTitle}”).{" "}
+                              <a href={`https://www.themoviedb.org/search/tv?query=${encodeURIComponent(searchTitle)}`} target="_blank" rel="noreferrer">Search on TMDB ↗</a> and enter the number.
+                            </span>
+                          ) : missing.length ? <span className="font-mono text-xs">{summarizeMissing(missing, seasons)}</span> : <span className="muted">—</span>}
                         </td>
                         <td>
                           <form action={setVodTmdbAction} className="flex gap-1">
@@ -203,6 +224,7 @@ export default async function VodPage({ searchParams }: { searchParams: Promise<
             <li>Every series on the panel is compared with <b>TMDB</b> (The Movie Database). Only <b>aired</b> episodes count — upcoming ones never show as missing.</li>
             <li><b>Completed</b>: every season and episode that has <b>aired</b> is on the panel. Seasons that are announced but not out yet do not count — they show as “next episode” with the date.</li>
             <li><b>New episode out</b>: the newest episode aired in the last 14 days and is not on the panel yet.</li>
+            <li><b>Matching</b>: the title is cleaned of tags (EX-YU, SINH, 4K, S01, year…) and searched several ways — the whole title, each part of “Title / Naslov” or “Naslov (Title)”, Latin for Cyrillic, without č/ć/š/ž — with English, Croatian and Serbian names. A TMDB number already stored on the panel is used first.</li>
             <li><b>Not matched</b>: TMDB did not recognise the title. Open themoviedb.org, find the series and enter its number (from the link, e.g. <span className="font-mono">themoviedb.org/tv/<b>1396</b></span>), then click Check.</li>
             <li>Shows, sports or local series without TMDB entries: click <b>Don&apos;t monitor</b>.</li>
             <li><b>CSV</b> exports the current list — send it to whoever adds the content.</li>

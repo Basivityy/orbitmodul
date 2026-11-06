@@ -168,7 +168,7 @@ async function sweep() {
       reseller: { vodMonitorEnabled: true, status: "ACTIVE" },
       OR: [
         { status: { in: ["IDLE", "DONE", "ERROR"] }, OR: [{ lastScanAt: null }, { lastScanAt: { lt: new Date(now.getTime() - 24 * 3600_000) } }] },
-        { status: "QUEUED", updatedAt: { lt: new Date(now.getTime() - 6 * 3600_000) } },
+        { status: { in: ["QUEUED", "RUNNING"] }, updatedAt: { lt: new Date(now.getTime() - 30 * 60_000) } },
       ],
     },
     select: { resellerId: true },

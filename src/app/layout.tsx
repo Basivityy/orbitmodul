@@ -4,6 +4,7 @@ import { refreshPublicUrl } from "@/lib/publicUrl";
 import { env } from "@/lib/env";
 import { Suspense } from "react";
 import { NavProgress } from "@/components/NavProgress";
+import { MobileTables } from "@/components/MobileTables";
 
 export const metadata: Metadata = {
   title: { default: env.platformName, template: `%s · ${env.platformName}` },
@@ -39,6 +40,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <NavProgress />
         </Suspense>
         {children}
+        <MobileTables />
       </body>
     </html>
   );

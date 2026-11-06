@@ -496,6 +496,13 @@ Prvo uvijek: `cd /root/xui-billing`
 
 Sistem samo čita listu i ništa ne mijenja na panelu.
 
+**Kako traži serije na TMDB:** prvo TMDB broj ako ga panel već ima. Ako nema, naziv se očisti od tagova (EX-YU, TR:, SINH, PREVOD, 4K, S01, „1. sezona”, „Turska serija”, godina…) i traži se na više načina: cijeli naziv, svaki dio od „Naziv / Title” i „Naziv (Title)”, ćirilica prebačena u latinicu, bez č/ć/š/ž/đ, „&” ↔ „and”, i originalni naziv iz panela. Rezultati se upoređuju sa engleskim, hrvatskim i srpskim nazivom i originalnim nazivom serije, a godina pomaže kod rimejkova. Za seriju koja i dalje nije nađena stoji dugme **Search on TMDB ↗** sa već očišćenim nazivom.
+
+Ako panel kaže „zauzet” (503), čeka i pokuša ponovo, pa serija više ne ispada kao Error. Ako se skeniranje prekine (restart servera), stranica to pokaže i **Scan now** ga pokreće ponovo; server ga i sam ponovo pokrene za 30 min.
+
+## Na mobitelu
+Sve tabele se na mobitelu prikazuju kao kartice (jedna linija = jedna kartica, „Naziv: vrijednost”), bez skrolanja u stranu. Ako stranica ne može da se učita, umjesto crnog ekrana stoji poruka sa **Try again**.
+
 ## Expiring lines (podsjetnici)
 Meni **Expiring lines**: linije koje ističu u 7 ili 30 dana i one koje su istekle a nisu produžene.
 Za svaku liniju: **WhatsApp** (otvara poruku spremnu za slanje; sa upisanim brojem ide direktno tom kupcu), **Viber**, **Copy text**, **Email**. Dugme **Email all** šalje podsjetnik svima koji imaju email (preskače one podsjetene u zadnja 24h).

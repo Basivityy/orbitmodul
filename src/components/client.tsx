@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useFormStatus } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -113,10 +113,22 @@ export function Secret({ value }: { value: string }) {
 /** Refreshes server data periodically while `active` (e.g. order activation status). */
 export function AutoRefresh({ active, intervalMs = 3000 }: { active: boolean; intervalMs?: number }) {
   const router = useRouter();
+  const [, startTransition] = useTransition();
   useEffect(() => {
     if (!active) return;
-    const t = setInterval(() => router.refresh(), intervalMs);
-    return () => clearInterval(t);
+    // Not while the tab is in the background or the phone is offline; the page stays as it is
+    // (transition) until the new data is there, so it never flashes empty.
+    const tick = () => {
+      if (document.hidden || navigator.onLine === false) return;
+      startTransition(() => router.refresh());
+    };
+    const t = setInterval(tick, intervalMs);
+    const onShow = () => !document.hidden && tick();
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onShow);
+    };
   }, [active, intervalMs, router]);
   return null;
 }

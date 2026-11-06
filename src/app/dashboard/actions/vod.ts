@@ -8,7 +8,7 @@ import { actorOf, requireReseller } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enqueueVodScan } from "@/lib/queue";
 import { rateLimit } from "@/lib/ratelimit";
-import { recheckSeries, testMonitoringLine } from "@/lib/vod";
+import { recheckSeries, testMonitoringLine, vodScanStuck } from "@/lib/vod";
 
 const BACK = "/dashboard/vod";
 
@@ -63,7 +63,7 @@ export async function scanVodNowAction() {
     const { user, reseller } = await vodReseller();
     const m = await db.vodMonitor.findUnique({ where: { resellerId: reseller.id } });
     if (!m) throw new UserError("Enter the monitoring line first.");
-    if (m.status === "RUNNING" || m.status === "QUEUED") return "A scan is already running.";
+    if ((m.status === "RUNNING" || m.status === "QUEUED") && !vodScanStuck(m)) return "A scan is already running.";
     if (!(await rateLimit(`vod-scan:${reseller.id}`, 6, 3600))) throw new UserError("You can start at most 6 scans per hour.");
     await db.vodMonitor.update({ where: { resellerId: reseller.id }, data: { status: "QUEUED", progress: 0, lastError: null } });
     await enqueueVodScan(reseller.id);

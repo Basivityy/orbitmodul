@@ -1,7 +1,8 @@
 import type { Prisma, VodSeries } from "@prisma/client";
 import { decrypt, encrypt } from "@/core/crypto";
 import { assertPublicUrl } from "@/core/net";
-import { cleanSeriesTitle, compareEpisodes, expectedFromTmdb, nextFromTmdb, type PanelSeries, type SeriesStatus, TmdbClient, VodSourceError, XtreamClient } from "@/core/vod";
+import { findTv, titleCandidates, titleYear, type TmdbHit } from "@/core/vodMatch";
+import { compareEpisodes, expectedFromTmdb, nextFromTmdb, type PanelSeries, type SeriesStatus, TmdbClient, VodSourceError, XtreamClient } from "@/core/vod";
 import { db } from "./db";
 import { getSetting, setSetting } from "./settings";
 
@@ -13,6 +14,12 @@ import { getSetting, setSetting } from "./settings";
 export const SETTING_TMDB_KEY = "tmdb_api_key";
 const TMDB_TTL_MS = 24 * 3600_000;
 const PANEL_CONCURRENCY = 3;
+/** A RUNNING / QUEUED scan without progress for this long is treated as stopped (worker restart…). */
+export const VOD_STALE_MS = 20 * 60_000;
+
+export function vodScanStuck(m: { status: string; updatedAt: Date }, now = Date.now()): boolean {
+  return (m.status === "RUNNING" || m.status === "QUEUED") && now - m.updatedAt.getTime() > VOD_STALE_MS;
+}
 
 export async function getTmdbKey(): Promise<string | null> {
   const enc = await getSetting<string | null>(SETTING_TMDB_KEY, null);
@@ -47,9 +54,11 @@ async function tmdbTv(tmdb: TmdbClient, id: string): Promise<{ name: string; sea
   });
 }
 
-async function tmdbSearch(tmdb: TmdbClient, name: string): Promise<{ id: string; name: string } | null> {
-  const { title, year } = cleanSeriesTitle(name);
-  return cached(`search:${title.toLowerCase()}:${year ?? ""}`, () => tmdb.searchTv(title, year));
+/** TMDB match for a panel title — several search titles and languages (see core/vodMatch). */
+async function tmdbSearch(tmdb: TmdbClient, name: string, extra: { names: string[]; year: string | null }): Promise<TmdbHit | null> {
+  const year = titleYear(name) ?? extra.year;
+  const key = `match3:${titleCandidates(name, extra.names).join("|").toLowerCase().slice(0, 400)}:${year ?? ""}`;
+  return cached(key, () => findTv(name, { year, extraNames: extra.names.filter((n) => n !== name), search: (q, o) => tmdb.searchRaw(q, o) }));
 }
 
 interface Ctx {
@@ -77,7 +86,7 @@ async function checkSeries(ctx: Ctx, s: PanelSeries, prev: Prev): Promise<Series
     let tmdbId = prev?.tmdbOverride || s.tmdbId || info.tmdbId;
     let tmdbName: string | null = null;
     if (!tmdbId) {
-      const hit = await tmdbSearch(ctx.tmdb, s.name);
+      const hit = await tmdbSearch(ctx.tmdb, s.name, { names: info.names, year: s.year ?? info.year });
       tmdbId = hit?.id ?? null;
       tmdbName = hit?.name ?? null;
     }
@@ -139,7 +148,12 @@ export async function scanReseller(resellerId: string): Promise<{ series: number
     if (m) await db.vodMonitor.update({ where: { resellerId }, data: { status: "IDLE" } });
     return { series: 0, missing: 0 };
   }
-  await db.vodMonitor.update({ where: { resellerId }, data: { status: "RUNNING", progress: 0, total: 0, lastError: null } });
+  // Claim the scan: only one at a time per reseller (a scan with no progress for 20 min counts as dead).
+  const claimed = await db.vodMonitor.updateMany({
+    where: { resellerId, OR: [{ status: { not: "RUNNING" } }, { updatedAt: { lt: new Date(Date.now() - VOD_STALE_MS) } }] },
+    data: { status: "RUNNING", progress: 0, total: 0, lastError: null },
+  });
+  if (!claimed.count) return { series: 0, missing: 0 };
   try {
     const ctx = await context(resellerId);
     ctx.categories = await ctx.panel.categories().catch(() => new Map());
@@ -156,7 +170,7 @@ export async function scanReseller(resellerId: string): Promise<{ series: number
         await checkSeries(ctx, s, p);
       }
       done++;
-      if (done % 10 === 0) await db.vodMonitor.update({ where: { resellerId }, data: { progress: done } });
+      if (done % 5 === 0) await db.vodMonitor.update({ where: { resellerId }, data: { progress: done } });
     });
     // Series removed from the panel disappear from the report.
     await db.vodSeries.deleteMany({ where: { resellerId, checkedAt: { lt: ctx.now } } });

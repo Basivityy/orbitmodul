@@ -77,12 +77,12 @@ export async function enqueueEmail(job: EmailJob): Promise<void> {
   await queue(QUEUE_EMAIL).add("email", job, { attempts: 5, backoff: { type: "exponential", delay: 30_000 }, removeOnComplete: 1000, removeOnFail: { age: 14 * 24 * 3600 } });
 }
 
-/** VOD library scan of one reseller — at most one waiting per reseller. */
+/** VOD library scan of one reseller (double runs are stopped by the claim in scanReseller). */
 export async function enqueueVodScan(resellerId: string): Promise<void> {
   await queue(QUEUE_VOD).add(
     "scan",
     { resellerId },
-    { jobId: `vod-${resellerId}-${Date.now()}`, deduplication: { id: `vod-${resellerId}` }, attempts: 1, removeOnComplete: { age: 7 * 24 * 3600 }, removeOnFail: { age: 14 * 24 * 3600 } },
+    { jobId: `vod-${resellerId}-${Date.now()}`, attempts: 1, removeOnComplete: { age: 7 * 24 * 3600 }, removeOnFail: { age: 14 * 24 * 3600 } },
   );
 }
 

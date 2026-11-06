@@ -71,6 +71,36 @@ html.dark {
   .hazard { background: repeating-linear-gradient(-45deg, var(--signal) 0 14px, #000 14px 28px); height: 10px; }
 }
 
+/* Phones: tables become cards (labels set by components/MobileTables.tsx). */
+@media (max-width: 639px) {
+  .table[data-cards] { display: block; min-width: 0; border: 0; }
+  .table[data-cards] thead { display: none; }
+  .table[data-cards] tbody { display: block; border: 0; }
+  .table[data-cards] tbody tr { display: block; padding: 0.75rem 1rem; border-bottom: 1px solid rgb(226 232 240); }
+  .dark .table[data-cards] tbody tr { border-bottom-color: rgb(30 41 59); }
+  .table[data-cards] tbody tr:hover { background: transparent; }
+  .table[data-cards] td {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+    padding: 0.3rem 0; white-space: normal; text-align: right; overflow-wrap: anywhere;
+    width: auto !important; min-width: 0 !important; max-width: none !important;
+  }
+  .table[data-cards] td > * { min-width: 0; }
+  .table[data-cards] td::before {
+    content: attr(data-label); flex-shrink: 0; max-width: 45%; text-align: left;
+    font-size: 0.75rem; font-weight: 600; color: rgb(100 116 139);
+  }
+  /* first cell = title of the card; cells without a heading = actions, right aligned */
+  .table[data-cards] td:first-child { justify-content: flex-start; text-align: left; font-size: 0.95rem; padding-top: 0; }
+  .table[data-cards] td:first-child::before, .table[data-cards] td[data-label=""]::before, .table[data-cards] td[data-wide]::before { display: none; }
+  .table[data-cards] td[data-label=""] { justify-content: flex-end; flex-wrap: wrap; }
+  .table[data-cards] td[data-wide] { display: block; text-align: left; }
+  .table[data-cards] td form { flex-wrap: wrap; justify-content: flex-end; }
+  .table-wrap:has(> .table[data-cards]) { overflow-x: visible; }
+  /* bigger tap targets */
+  .btn-sm { min-height: 2.25rem; }
+  .input, select.input { font-size: 16px; } /* iOS does not zoom into 16px inputs */
+}
+
 /* Page loading feedback (NavProgress, LoadingView) */
 .spinner { display: inline-block; width: 1.1em; height: 1.1em; border-radius: 9999px; border: 2.5px solid currentColor; border-right-color: transparent; animation: spin 0.7s linear infinite; color: var(--signal, #ffd400); }
 .nav-progress { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 100; overflow: hidden; background: rgba(255, 212, 0, 0.15); }
